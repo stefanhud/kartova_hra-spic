@@ -1,4 +1,4 @@
-// server/src/game/Deck.ts
+// server/src/game/deck.ts
 import { Card, Suit, Rank } from './types';
 
 const SUITS: Suit[] = ['H', 'D', 'C', 'S'];

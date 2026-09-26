@@ -12,8 +12,6 @@ const RANK_ORDER: Record<string, number> = { '7': 1, '8': 2, '9': 3, '10': 4, 'J
 
 export class HandEvaluator {
 
-  // server/src/game/HandEvaluator.ts
-
   static evaluate(cards: Card[]): ExtendedHandResult {
     if (!cards || cards.length < 3) {
       return this.calculateBestSuitSum(cards);
@@ -21,13 +19,13 @@ export class HandEvaluator {
 
     // 1. CHECK FOR ZLATÝ ŠPIC (3 Aces)
     if (cards.every(c => c.rank === 'A')) {
-      return { score: 33, type: HandType.ZLATY_SPIC, description: 'Zlatý špic (3 Aces)', isFlush: false };
+      return { score: 33, type: HandType.ZLATY_SPIC, description: 'Zlatý špic', isFlush: false };
     }
 
     // 2. CHECK FOR TROJICA (3 of a kind)
     const firstRank = cards[0].rank;
     if (cards.every(c => c.rank === firstRank)) {
-      return { score: 30.5, type: HandType.TROJICA, description: `Trojica (${firstRank}s)`, isFlush: false, tieBreak: RANK_ORDER[firstRank] };
+      return { score: 30.5, type: HandType.TROJICA, description: `Trojica ${firstRank}`, isFlush: false, tieBreak: RANK_ORDER[firstRank] };
     }
 
    // 3. CHECK FOR BICYKEL
@@ -79,7 +77,7 @@ export class HandEvaluator {
     return {
       score: maxScore,
       type: maxScore === 31 ? HandType.SPIC : HandType.NORMAL,
-      description: maxScore === 31 ? 'Špic!' : (maxScore > 0 ? `Points: ${maxScore}` : 'Invalid (No Flush)'),
+      description: maxScore === 31 ? 'Špic' : (maxScore > 0 ? `Flush ${maxScore}` : 'No flush'),
       isFlush: isFlush
     };
   }
@@ -89,7 +87,7 @@ export class HandEvaluator {
     const suitSums: Record<string, number> = { H: 0, D: 0, C: 0, S: 0 };
     cards.forEach(c => suitSums[c.suit] += c.value);
     const max = Math.max(...Object.values(suitSums));
-    return { score: max, type: HandType.NORMAL, description: `Partial: ${max}` };
+    return { score: max, type: HandType.NORMAL, description: `${max} so far` };
   }
 
   static getBestSubset(cards: Card[]): { indices: number[], result: ExtendedHandResult } | null {

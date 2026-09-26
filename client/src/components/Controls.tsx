@@ -1,125 +1,200 @@
-// client/src/components/Controls.tsx
-import React, { useState } from 'react';
+import React from 'react';
+import styled from 'styled-components';
 
 interface ControlsProps {
   onAction: (action: string, amount?: number) => void;
-  onPass?: () => void;
-  onDealerSpecial?: (action: 'TAKE' | 'PASS') => void;
-  phase: string;
   currentBet: number;
   myBet: number;
   myChips: number;
+  onDealerSpecial: (action: 'TAKE' | 'PASS') => void;
   isMyTurn: boolean;
+  phase: string;
+  onPass: () => void;
+  isDealer?: boolean;
 }
 
-export const Controls: React.FC<ControlsProps> = ({ 
-  onAction, onPass, onDealerSpecial, phase, currentBet, myBet, myChips, isMyTurn 
-}) => {
-  const [raiseAmount, setRaiseAmount] = useState(currentBet + 10);
-  
-  // Hide if not my turn
-  if (!isMyTurn) return <div style={{height: '60px'}}></div>;
-
-  // --- 1. DEALER SPECIAL BUTTONS (Restored) ---
-  // --- DEALER SPECIAL ---
-  if (phase === 'DEALER_SPECIAL') {
-      return (
-        <div style={{ 
-            position: 'fixed', bottom: '150px', left: '50%', transform: 'translateX(-50%)',
-            display: 'flex', gap: '20px', background: 'rgba(0,0,0,0.9)', padding: '30px', borderRadius: '15px', 
-            zIndex: 99999, // <--- EXTREME Z-INDEX to prevent unclickable state
-            flexDirection: 'column', alignItems: 'center', boxShadow: '0 0 20px rgba(0,0,0,0.8)'
-        }}>
-            <h2 style={{color: '#f1c40f', margin: '0 0 15px 0'}}>Special Dealer Option!</h2>
-            <div style={{display: 'flex', gap: '20px'}}>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onDealerSpecial && onDealerSpecial('TAKE'); }}
-                  style={{
-                      background: '#2ecc71', color: 'white', padding: '20px 40px', 
-                      borderRadius: '10px', border: '2px solid white', cursor: 'pointer', 
-                      fontWeight: 'bold', fontSize: '18px'
-                  }}
-                >
-                  TAKE 3 FROM TABLE
-                </button>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onDealerSpecial && onDealerSpecial('PASS'); }}
-                  style={{
-                      background: '#7f8c8d', color: 'white', padding: '20px 40px', 
-                      borderRadius: '10px', border: '2px solid white', cursor: 'pointer',
-                      fontWeight: 'bold', fontSize: '18px'
-                  }}
-                >
-                  REVEAL MY HAND
-                </button>
-            </div>
-        </div>
-      );
+const Bar = styled.div`
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  /* mobile: centered along the bottom, above the one-line log */
+  bottom: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 96vw;
+  justify-content: center;
+  /* desktop: tucked into the bottom-right corner, PokerNow-style */
+  @media (min-width: 561px) {
+    left: auto;
+    right: 24px;
+    transform: none;
+    bottom: 40px;
+    width: auto;
   }
+`;
 
-  // --- 2. TALON BUTTONS ---
-  if (phase === 'TALON_SWAP') {
+const ActionBtn = styled.button<{ $tone: 'green' | 'red' | 'grey' }>`
+  position: relative;
+  min-width: 108px;
+  padding: 16px 20px 15px;
+  border-radius: 10px;
+  background: rgba(20, 20, 22, 0.9);
+  border: 1.5px solid ${p => (p.$tone === 'red' ? '#e0533d' : p.$tone === 'grey' ? '#6a6a72' : '#3ecf7a')};
+  color: ${p => (p.$tone === 'red' ? '#ff6a52' : p.$tone === 'grey' ? '#c6c6cc' : '#4ee08c')};
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.05s;
+  &:hover { background: rgba(40, 40, 44, 0.95); }
+  &:active { transform: translateY(1px); }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  @media (max-width: 560px) {
+    min-width: 0;
+    flex: 1 1 0;
+    padding: 15px 6px;
+    font-size: 15px;
+  }
+`;
+
+const Key = styled.span`
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.35);
+`;
+
+const InfoCard = styled.div`
+  min-width: 116px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: rgba(20, 20, 22, 0.85);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  color: #f4d24b;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+const RaiseGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(20, 20, 22, 0.9);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 5px 7px;
+  flex: 0 0 auto;
+`;
+const RaiseLabel = styled.span`
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+`;
+const RaiseRow = styled.div`
+  display: flex;
+  gap: 5px;
+`;
+const RaiseBtn = styled.button<{ $ok: boolean }>`
+  padding: 8px 11px;
+  border-radius: 7px;
+  border: 1.5px solid ${p => (p.$ok ? '#3e86cf' : '#4a4a52')};
+  background: rgba(20, 20, 22, 0.6);
+  color: ${p => (p.$ok ? '#5fa8ee' : '#6a6a72')};
+  font-size: 14px;
+  font-weight: 800;
+  cursor: ${p => (p.$ok ? 'pointer' : 'not-allowed')};
+  &:hover { background: ${p => (p.$ok ? 'rgba(40,40,44,0.95)' : 'rgba(20,20,22,0.6)')}; }
+`;
+
+const SwapHint = styled.div`
+  position: fixed;
+  bottom: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  @media (min-width: 561px) {
+    left: auto;
+    right: 24px;
+    transform: none;
+    bottom: 40px;
+  }
+`;
+
+export const Controls: React.FC<ControlsProps> = ({
+  onAction, currentBet, myBet, myChips, onDealerSpecial, isMyTurn, phase, onPass, isDealer,
+}) => {
+  const callAmount = currentBet - myBet;
+  const canCheck = callAmount === 0;
+
+  if (phase === 'DEALER_SPECIAL' && isMyTurn) {
     return (
-      <div style={{ 
-        position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', 
-        background: 'rgba(0,0,0,0.8)', padding: '15px', borderRadius: '15px', zIndex: 100
-      }}>
-        <h3 style={{color: '#bdc3c7', margin: 0, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px'}}>
-          Click cards to swap or...
-        </h3>
-        <button 
-          onClick={onPass}
-          style={{
-            background: '#3498db', color: 'white', padding: '12px 30px', 
-            borderRadius: '5px', cursor: 'pointer', border: 'none', 
-            fontWeight: 'bold', fontSize: '16px', boxShadow: '0 4px 0 #2980b9'
-          }}
-        >
-          PASS / KNOCK
-        </button>
-      </div>
+      <Bar>
+        <ActionBtn $tone="green" onClick={() => onDealerSpecial('TAKE')}>TAKE CARDS</ActionBtn>
+        <ActionBtn $tone="red" onClick={() => onDealerSpecial('PASS')}>REVEAL HAND</ActionBtn>
+      </Bar>
     );
   }
 
-  // --- 3. BETTING BUTTONS ---
-  const callAmount = currentBet - myBet;
+  if (phase === 'TALON_SWAP') {
+    if (!isMyTurn) return null;
+    // The "tap a card, then a table card" instruction is already shown as the hand label,
+    // so this is just a compact PASS action.
+    return (
+      <SwapHint>
+        <ActionBtn as="button" $tone="grey" style={{ minWidth: 0, padding: '11px 30px' }} onClick={onPass}>
+          PASS
+        </ActionBtn>
+      </SwapHint>
+    );
+  }
+
+  if (!isMyTurn) return null;
 
   return (
-    <div style={{ 
-      position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-      display: 'flex', gap: '10px', background: 'rgba(0,0,0,0.8)', padding: '15px', borderRadius: '15px', zIndex: 100
-    }}>
-      <button 
-        style={{background: '#e74c3c', color: 'white', padding: '10px', borderRadius: '5px', cursor: 'pointer', border: 'none'}}
-        onClick={() => onAction('FOLD')}
-      >
-        FOLD
-      </button>
+    <Bar>
+      {isDealer ? (
+        <InfoCard>Banker<br />must call</InfoCard>
+      ) : (
+        <ActionBtn $tone="red" onClick={() => onAction('FOLD')}>
+          FOLD <Key>F</Key>
+        </ActionBtn>
+      )}
 
-      <button 
-        style={{background: '#f1c40f', color: '#2c3e50', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', border: 'none'}}
-        onClick={() => onAction('CALL')}
-      >
-        {callAmount > 0 ? `CALL $${callAmount}` : 'CHECK'}
-      </button>
+      <ActionBtn $tone="green" onClick={() => onAction('CALL')}>
+        {canCheck ? 'CHECK' : `CALL €${callAmount}`}
+        <Key>{canCheck ? 'K' : 'C'}</Key>
+      </ActionBtn>
 
-      <div style={{display: 'flex', flexDirection: 'column', gap: '5px'}}>
-        <button 
-          style={{background: '#2ecc71', color: 'white', padding: '5px', borderRadius: '5px', cursor: 'pointer', border: 'none'}}
-          onClick={() => onAction('RAISE', raiseAmount)}
-        >
-          RAISE TO ${raiseAmount}
-        </button>
-        <input 
-          type="range" 
-          min={currentBet + 5} 
-          max={myChips} 
-          step={5}
-          value={raiseAmount} 
-          onChange={(e) => setRaiseAmount(Number(e.target.value))} 
-        />
-      </div>
-    </div>
+      <RaiseGroup>
+        <RaiseLabel>RAISE BY</RaiseLabel>
+        <RaiseRow>
+          {[1, 2, 3].map(amount => {
+            const totalBet = currentBet + amount;
+            const cost = totalBet - myBet;
+            const ok = myChips >= cost;
+            return (
+              <RaiseBtn key={amount} $ok={ok} disabled={!ok} onClick={() => ok && onAction('RAISE', totalBet)}>
+                +€{amount}
+              </RaiseBtn>
+            );
+          })}
+        </RaiseRow>
+      </RaiseGroup>
+    </Bar>
   );
 };

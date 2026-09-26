@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  bar-spic:
+    build: .
+    container_name: bar-spic
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    mem_limit: 512m

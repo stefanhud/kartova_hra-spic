@@ -12,6 +12,7 @@ export interface Player {
   specialStatus?: string; // <--- NEW: Can be 'BICYKEL'
   isFaceUp?: boolean;
   score?: number;
+  hasLooked?: boolean; // Banker only: peeked at their cards, forfeiting the blind talon privilege
 }
 
 export interface GameState {
@@ -20,19 +21,22 @@ export interface GameState {
   deckRemaining: number;
   // Added DEALING_3 phase
   phase: 'WAITING' | 'BETTING_1' | 'DEALING_3' | 'BETTING_2' | 'TALON_SWAP' | 'SHOWDOWN' | 'DEALER_SPECIAL';
-  turnIndex: number;   
-  dealerIndex: number; 
-  
+  turnIndex: number;
+  dealerIndex: number;
+
   // --- NEW PROPERTIES ---
   currentBet: number;          // Track the high bet to call
   lastRaiserIndex: number | null; // Track who ended the betting round
   // ----------------------
 
-  talon: Card[];       
-  log: string[];       
+  talon: Card[];
+  log: string[];
   minScoreToBeat: number;      // The score the next player must exceed
   swappedPlayers: string[];    // List of player IDs who have acted this round
   gameWinner: string | null;   // ID of the winner
+  potThreshold: number;        // Escalation rule: after a tie, the next winner must EXCEED this score
+  turnNonce: number;           // Increments each decision turn (client restarts its countdown bar)
+  turnDeadline: number;        // Server timestamp (ms) when the current turn auto-acts; 0 = no timer
 }
 
 export const INITIAL_STATE: GameState = {
@@ -42,7 +46,7 @@ export const INITIAL_STATE: GameState = {
   phase: 'WAITING',
   turnIndex: 0,
   dealerIndex: 0,
-  
+
   // --- NEW INITIAL VALUES ---
   currentBet: 0,
   lastRaiserIndex: null,
@@ -53,5 +57,7 @@ export const INITIAL_STATE: GameState = {
   minScoreToBeat: 0,
   swappedPlayers: [],
   gameWinner: null,
-  
+  potThreshold: 0,
+  turnNonce: 0,
+  turnDeadline: 0,
 };

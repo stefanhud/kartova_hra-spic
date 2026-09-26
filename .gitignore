@@ -12,3 +12,9 @@ build/
 # Environment variables (Safety)
 .env
 .DS_Store
+
+# TypeScript incremental build output
+**/*.tsbuildinfo
+
+# Local Claude Code configuration
+.claude/

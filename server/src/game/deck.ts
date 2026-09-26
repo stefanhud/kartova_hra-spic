@@ -38,6 +38,10 @@ export class Deck {
     return this.cards.pop();
   }
 
+  get remaining(): number {
+    return this.cards.length;
+  }
+
   // Helper to get numeric value based on "Bar Rules"
   private getCardValue(rank: Rank): number {
     if (rank === 'A') return 11;

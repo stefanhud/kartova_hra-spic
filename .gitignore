@@ -15,6 +15,7 @@ build/
 
 # TypeScript incremental build output
 **/*.tsbuildinfo
+.vite/
 
 # Local Claude Code configuration
 .claude/

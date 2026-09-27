@@ -1,30 +1,31 @@
-# Use Node.js 18 on Alpine Linux (Lightweight)
-FROM node:22-alpine
-
-# Set working directory
-WORKDIR /app
-
-# --- 1. BUILD CLIENT ---
+# ---- 1. Build the React client ----
+FROM node:22-alpine AS client
 WORKDIR /app/client
-# Copy client package files and install
 COPY client/package*.json ./
-RUN npm install
-# Copy client source code
+RUN npm ci
 COPY client/ ./
-# Build the React app (creates /app/client/dist)
 RUN npm run build
 
-# --- 2. SETUP SERVER ---
+# ---- 2. Compile the TypeScript server ----
+FROM node:22-alpine AS server
 WORKDIR /app/server
-# Copy server package files and install
 COPY server/package*.json ./
-RUN npm install
-# Copy server source code
+RUN npm ci
 COPY server/ ./
+RUN npm run build
 
-# --- 3. FINAL CONFIG ---
-# Expose the port
+# ---- 3. Runtime: compiled JS + production dependencies only ----
+FROM node:22-alpine
+ENV NODE_ENV=production \
+    PORT=3001
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=server /app/server/dist ./dist
+COPY --from=client /app/client/dist /app/client/dist
+
+USER node
 EXPOSE 3001
-
-# Command to start the server (using ts-node to run TypeScript directly)
-CMD ["npx", "ts-node", "src/index.ts"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
+  CMD wget -qO- http://127.0.0.1:3001/healthz >/dev/null || exit 1
+CMD ["node", "dist/index.js"]

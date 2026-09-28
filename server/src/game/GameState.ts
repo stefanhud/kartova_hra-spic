@@ -1,16 +1,19 @@
 // server/src/game/GameState.ts
 import { Card } from './types';
 
-export type Phase = 'WAITING' | 'BETTING_1' | 'BETTING_2' | 'DEALER_SPECIAL' | 'TALON_SWAP' | 'SHOWDOWN';
+export type Phase = 'WAITING' | 'DEALER_CHOICE' | 'BETTING_1' | 'BETTING_2' | 'DEALER_SPECIAL' | 'TALON_SWAP' | 'SHOWDOWN';
 
 export interface Player {
   id: string;             // Public id (random). Never the socket id or the secret session token.
   name: string;
   seatIndex: number;      // 0-5 (max 6 players)
-  chips: number;
+  chips: number;           // Euro cents
   hand: Card[];
   isFolded: boolean;      // Also true while sitting out a round
-  bet: number;            // Bet in the current betting round
+  bet: number;            // Bet in the current betting round (cents)
+  handBets: number;       // Everything bet this hand, excluding the ante and debt payments (cents)
+  debt: number;           // Owed to the carried-over pot before playing on (cents)
+  benched?: boolean;      // Skipped their turn to deal while owing: sits out until the pot is won
   specialStatus?: 'BICYKEL';
   isFaceUp?: boolean;
   score?: number;
@@ -57,6 +60,11 @@ export interface GameState {
   turnNonce: number;      // Increments every turn (client restarts its countdown)
   turnDeadline: number;   // Server timestamp (ms) when the current turn auto-acts; 0 = no timer
   turnDuration: number;   // Length of the current turn timer in ms
+  raiserSeats: number[];  // Seats allowed to raise this betting round (first and last player)
+  raisesThisRound: number;
+  lastRaiserId: string | null;
+  spicTie: boolean;       // The carried pot was tied on Špic: the first Špic takes it
+  carryTotal: number;     // Sum of what the finishers paid in every tied hand since the pot was last won
   roundId: number;
   result: RoundResult | null;
 }
@@ -66,7 +74,16 @@ export interface ClientView extends GameState {
   you: string | null;     // Viewer's player id, null for spectators
   serverNow: number;      // Lets the client correct its clock for the turn timer
   swapOptions: SwapOption[];
-  config: { ante: number; maxRaise: number; minBuyIn: number; maxBuyIn: number; seats: number };
+  canRaise: boolean;      // Viewer may raise right now
+  config: {
+    ante: number;
+    raiseSteps: number[];
+    maxRaises: number;
+    minBuyIn: number;
+    maxBuyIn: number;
+    defaultBuyIn: number;
+    seats: number;
+  };
 }
 
 export function createInitialState(): GameState {
@@ -87,6 +104,11 @@ export function createInitialState(): GameState {
     turnNonce: 0,
     turnDeadline: 0,
     turnDuration: 0,
+    raiserSeats: [],
+    raisesThisRound: 0,
+    lastRaiserId: null,
+    spicTie: false,
+    carryTotal: 0,
     roundId: 0,
     result: null,
   };

@@ -5,12 +5,16 @@ import { Card, HandType } from './types';
 import { ClientView, GameState, Player, RoundResult, SwapOption, createInitialState } from './GameState';
 import { Deck } from './deck';
 import { HandEvaluator } from './HandEvaluator';
+import { euro } from './money';
 
-export const ANTE = 5;
+// Money is in euro cents.
+export const ANTE = 50;
 export const SEATS = 6;
-export const MAX_RAISE = 3;      // A raise adds €1–€3 on top of the current bet
-export const MIN_BUY_IN = 5;
-export const MAX_BUY_IN = 100;
+export const RAISE_STEPS = [50, 100, 200]; // A raise adds €0.50, €1 or €2 on top of the current bet
+export const MAX_RAISES = 2;               // One raise and one re-raise per betting round
+export const MIN_BUY_IN = 500;
+export const MAX_BUY_IN = 5000;
+export const DEFAULT_BUY_IN = 2000;
 const MAX_NAME = 16;
 const LOG_SIZE = 30;
 
@@ -117,6 +121,7 @@ export class GameManager {
     on('swapCard', (player, handIndex, talonIndex) => this.handleSwap(socket, player, handIndex, talonIndex));
     on('passTurn', player => this.handlePass(player));
     on('dealerSpecial', (player, action) => this.handleDealerSpecial(player, action));
+    on('dealerChoice', (player, action) => this.handleDealerChoice(socket, player, action));
 
     socket.on('disconnect', () => {
       if (this.socketToken.get(socket.id) !== token) return; // already replaced by a newer connection
@@ -184,25 +189,32 @@ export class GameManager {
       isFolded: inRound,
       sittingOut: inRound,
       bet: 0,
+      handBets: 0,
+      // Joining while a pot is carried over costs what the players who built it paid.
+      debt: this.state.carryTotal,
       score: 0,
       connected: true,
     };
     this.state.players.push(player);
     this.tokenPlayer.set(token, player.id);
     this.playerToken.set(player.id, token);
-    this.log(`${name} sat down at seat ${seatIndex + 1} with €${player.chips}.${inRound ? ' Playing from the next hand.' : ''}`);
+    const owes = player.debt > 0 ? ` Owes ${euro(player.debt)} to join the carried-over pot.` : '';
+    this.log(`${name} sat down at seat ${seatIndex + 1} with ${euro(player.chips)}.${inRound ? ' Playing from the next hand.' : ''}${owes}`);
   }
 
   private handleRebuy(socket: Socket, player: Player | undefined, rawAmount: unknown) {
     if (!player || player.chips > 0) return;
-    if (this.isInRound() && !player.sittingOut) return this.error(socket, 'You can rebuy after this hand.');
+    const dealtIn = this.isInRound() && this.state.phase !== 'DEALER_CHOICE' && !player.sittingOut;
+    if (dealtIn) return this.error(socket, 'You can rebuy after this hand.');
     player.chips = this.clampBuyIn(rawAmount);
-    this.log(`${player.name} rebought for €${player.chips}.`);
+    this.log(`${player.name} rebought for ${euro(player.chips)}.`);
   }
 
+  // Buy-ins are whole 50-cent steps between the table limits.
   private clampBuyIn(raw: unknown): number {
     const n = Number(raw);
-    return Number.isFinite(n) ? Math.max(MIN_BUY_IN, Math.min(MAX_BUY_IN, Math.round(n))) : 50;
+    if (!Number.isFinite(n)) return DEFAULT_BUY_IN;
+    return Math.max(MIN_BUY_IN, Math.min(MAX_BUY_IN, Math.round(n / 50) * 50));
   }
 
   private removePlayer(playerId: string, reason: 'left' | 'timeout') {
@@ -230,7 +242,9 @@ export class GameManager {
     if (!wasActive) return;
 
     // Never leave the round waiting on someone who is gone.
-    if (s.phase === 'BETTING_1' || s.phase === 'BETTING_2') {
+    if (s.phase === 'DEALER_CHOICE') {
+      if (wasTurn) this.passDeal(player.seatIndex);
+    } else if (s.phase === 'BETTING_1' || s.phase === 'BETTING_2') {
       if (wasTurn) this.promptNextBettor(player.seatIndex);
       else if (this.activePlayers().length < 2) this.resolveShortHanded();
     } else if (s.phase === 'DEALER_SPECIAL') {
@@ -257,12 +271,117 @@ export class GameManager {
   // STARTING A ROUND
   // ---------------------------------------------------------------------------
 
+  // Can be dealt into the next hand.
+  private isEligible(p: Player) {
+    return p.connected && p.chips > 0 && !p.benched;
+  }
+
   private handleStart(socket: Socket, requester: Player | undefined) {
     const s = this.state;
     if (s.phase !== 'WAITING' || !requester) return;
 
-    const eligible = s.players.filter(p => p.connected && p.chips > 0);
+    let eligible = s.players.filter(p => this.isEligible(p));
+    if (eligible.length < 2 && s.players.some(p => p.benched)) {
+      // Too few players left to ever win the pot: benched players come back in (still owing).
+      for (const p of s.players) p.benched = false;
+      this.log('Too few players — everyone who skipped is back in.');
+      eligible = s.players.filter(p => this.isEligible(p));
+    }
     if (eligible.length < 2) return this.error(socket, 'Need at least 2 players with chips to deal.');
+
+    // Banker rotates every round; random pick only on the very first round.
+    let candidate: Player | undefined;
+    if (this.firstRound) {
+      candidate = eligible[Math.floor(Math.random() * eligible.length)];
+      this.firstRound = false;
+    } else {
+      candidate = this.findNextSeat(s.dealerIndex, p => this.isEligible(p));
+    }
+    if (candidate) this.offerDeal(candidate);
+  }
+
+  // The next banker deals, unless they owe money to the carried-over pot: then they
+  // choose between paying it and dealing, or skipping until the pot is won.
+  private offerDeal(candidate: Player) {
+    const s = this.state;
+    if (candidate.debt === 0) {
+      this.dealHand(candidate);
+      return;
+    }
+
+    const others = s.players.filter(p => p !== candidate && this.isEligible(p));
+    if (others.length < 2) {
+      // Skipping would leave nobody to play against, so they have to deal.
+      if (candidate.chips >= candidate.debt + ANTE) {
+        const paid = this.payDebt(candidate);
+        this.log(`${candidate.name} must deal (too few players to skip) and pays ${euro(paid)} owed.`);
+      } else {
+        this.log(`${candidate.name} must deal (too few players to skip); the ${euro(candidate.debt)} owed stays open.`);
+      }
+      this.dealHand(candidate);
+      return;
+    }
+
+    s.phase = 'DEALER_CHOICE';
+    s.result = null;
+    s.dealerIndex = candidate.seatIndex;
+    this.armTurnTimer(candidate);
+    this.log(`${candidate.name} is next to deal but owes ${euro(candidate.debt)} — pay and deal, or skip?`);
+  }
+
+  private handleDealerChoice(socket: Socket, player: Player | undefined, action: unknown) {
+    const s = this.state;
+    if (!player || s.phase !== 'DEALER_CHOICE' || s.turnIndex !== player.seatIndex) return;
+    if (action === 'PAY') {
+      if (player.chips < player.debt + ANTE) {
+        return this.error(socket, `You need ${euro(player.debt + ANTE)} (what you owe plus the ante) to deal.`);
+      }
+      const paid = this.payDebt(player);
+      this.log(`${player.name} pays ${euro(paid)} owed and deals.`);
+      this.dealHand(player);
+    } else if (action === 'SKIP') {
+      this.skipDeal(player, 'skips dealing');
+    }
+  }
+
+  private skipDeal(player: Player, how: string) {
+    player.benched = true;
+    this.log(`${player.name} ${how} and sits out until the pot is won.`);
+    this.passDeal(player.seatIndex);
+  }
+
+  // The deal passes to the next player who owes nothing (or, failing that, the next player).
+  private passDeal(fromSeat: number) {
+    const s = this.state;
+    const eligible = s.players.filter(p => this.isEligible(p));
+    if (eligible.length < 2) {
+      s.phase = 'WAITING';
+      this.noTurn();
+      this.log('Not enough players to deal.');
+      return;
+    }
+    const next = this.findNextSeat(fromSeat, p => this.isEligible(p) && p.debt === 0)
+      ?? this.findNextSeat(fromSeat, p => this.isEligible(p));
+    if (next) this.offerDeal(next);
+  }
+
+  private payDebt(p: Player) {
+    const paid = p.debt;
+    p.chips -= paid;
+    this.state.pot += paid;
+    p.debt = 0;
+    return paid;
+  }
+
+  private dealHand(dealer: Player) {
+    const s = this.state;
+    const eligible = s.players.filter(p => this.isEligible(p));
+    if (eligible.length < 2 || !eligible.includes(dealer)) {
+      s.phase = 'WAITING';
+      this.noTurn();
+      this.log('Not enough players to deal.');
+      return;
+    }
 
     this.deck.reset();
     s.roundId++;
@@ -271,18 +390,11 @@ export class GameManager {
     s.talon = [];
     s.minScoreToBeat = 0;
     s.swappedPlayers = [];
-
-    // Banker rotates every round; random pick only on the very first round.
-    if (this.firstRound) {
-      s.dealerIndex = eligible[Math.floor(Math.random() * eligible.length)].seatIndex;
-      this.firstRound = false;
-    } else {
-      const next = this.findNextSeat(s.dealerIndex, p => eligible.includes(p));
-      if (next) s.dealerIndex = next.seatIndex;
-    }
+    s.dealerIndex = dealer.seatIndex;
 
     for (const p of s.players) {
       p.bet = 0;
+      p.handBets = 0;
       p.hand = [];
       p.score = 0;
       p.specialStatus = undefined;
@@ -309,8 +421,7 @@ export class GameManager {
       p.score = HandEvaluator.evaluate(p.hand).score;
     }
 
-    const banker = this.playerAt(s.dealerIndex);
-    this.log(`New hand — ${banker?.name ?? 'Seat ' + (s.dealerIndex + 1)} is the banker. Everyone antes €${ANTE}.`);
+    this.log(`New hand — ${dealer.name} is the banker. Everyone antes ${euro(ANTE)}.`);
     this.startBettingRound('BETTING_1');
   }
 
@@ -327,13 +438,37 @@ export class GameManager {
       p.hasActed = false;
       if (!p.isFolded) p.lastAction = undefined;
     }
+
+    // Only the first player (left of the banker) and the last one (right of the banker)
+    // may raise; the players in between call or fold, and the banker always calls.
+    const order: Player[] = [];
+    for (let i = 1; i < SEATS; i++) {
+      const p = this.playerAt((s.dealerIndex + i) % SEATS);
+      if (p && !p.isFolded) order.push(p);
+    }
+    s.raiserSeats = order.length ? [...new Set([order[0].seatIndex, order[order.length - 1].seatIndex])] : [];
+    s.raisesThisRound = 0;
+    s.lastRaiserId = null;
+
     this.promptNextBettor(s.dealerIndex);
   }
 
+  // Debt from a carried-over pot is settled at your first decision of the hand.
+  private debtDue(p: Player) {
+    return this.state.phase === 'BETTING_1' && p.debt > 0 && !p.isFolded && p.seatIndex !== this.state.dealerIndex;
+  }
+
+  private canRaise(p: Player) {
+    const s = this.state;
+    return p.seatIndex !== s.dealerIndex && s.raiserSeats.includes(p.seatIndex)
+      && s.raisesThisRound < MAX_RAISES && s.lastRaiserId !== p.id;
+  }
+
   // A player still owes a decision if they haven't acted since the last raise or
-  // haven't matched the current bet. Players with no chips left are all-in and skipped.
+  // haven't matched the current bet. Players with no chips left are all-in and skipped
+  // (unless they still have to decide about a debt).
   private needsToAct(p: Player) {
-    return !p.isFolded && p.chips > 0 && (!p.hasActed || p.bet < this.state.currentBet);
+    return !p.isFolded && (p.chips > 0 || this.debtDue(p)) && (!p.hasActed || p.bet < this.state.currentBet);
   }
 
   private promptNextBettor(fromSeat: number) {
@@ -351,15 +486,15 @@ export class GameManager {
 
     s.turnIndex = next.seatIndex;
 
-    if (this.isBlindBanker(next)) {
-      // The blind banker always calls, after a short pause so everyone sees it happen.
+    if (next.seatIndex === s.dealerIndex) {
+      // The banker always calls, after a short pause so everyone sees it happen.
       s.turnNonce++;
       s.turnDeadline = 0;
       s.turnDuration = 0;
       const nonce = s.turnNonce;
       this.setFlowTimer(() => {
         if (s.turnNonce !== nonce) return;
-        this.applyCall(next, true);
+        this.applyCall(next, { banker: true });
       }, this.timings.blindCall);
       return;
     }
@@ -369,14 +504,21 @@ export class GameManager {
 
   // Fewer than two players left in the hand during a betting round.
   private resolveShortHanded() {
+    const s = this.state;
     const active = this.activePlayers();
     if (active.length === 0) {
       this.endGame();
       return;
     }
-    // A survivor who already holds a scoring hand wins now; otherwise they have to
-    // prove a hand (third card / talon) first.
-    if ((active[0].score ?? 0) > 0) {
+    const survivor = active[0];
+    // A survivor who still owes a debt has to pay it (or fold) to see the third card.
+    if (this.debtDue(survivor) && this.needsToAct(survivor)) {
+      this.armTurnTimer(survivor);
+      return;
+    }
+    // Everyone else folded: the survivor still has to prove a Flush or Trojica — with
+    // the third card, or at the talon — otherwise the pot stays.
+    if (s.phase === 'BETTING_2' && (survivor.score ?? 0) > 0) {
       this.endGame();
       return;
     }
@@ -393,36 +535,48 @@ export class GameManager {
     const s = this.state;
     if (!player || (s.phase !== 'BETTING_1' && s.phase !== 'BETTING_2')) return;
     if (s.turnIndex !== player.seatIndex || !this.needsToAct(player)) return;
-    if (this.isBlindBanker(player)) return; // blind banker calls automatically
+    if (player.seatIndex === s.dealerIndex) return; // the banker calls automatically
+
+    const due = this.debtDue(player) ? player.debt : 0;
 
     if (rawAction === 'FOLD') {
-      // Banker's burden: the banker can never fold.
-      if (player.seatIndex === s.dealerIndex) return this.error(socket, 'As the banker you cannot fold — you must call.');
-      this.fold(player, 'folded');
+      this.fold(player, due ? `folded (still owes ${euro(due)})` : 'folded');
       return;
     }
 
     if (rawAction === 'CALL') {
-      this.applyCall(player, false);
+      if (due > player.chips) return this.error(socket, `You owe ${euro(due)} but have only ${euro(player.chips)} — you can only fold.`);
+      const paidDebt = due ? this.payDebt(player) : 0;
+      this.applyCall(player, { paidDebt });
       return;
     }
 
     if (rawAction === 'RAISE') {
       const step = Number(rawAmount);
-      if (!Number.isInteger(step) || step < 1 || step > MAX_RAISE) return;
+      if (!RAISE_STEPS.includes(step)) return;
+      if (!this.canRaise(player)) {
+        return this.error(socket, 'Only the first and last player may raise — one raise and one re-raise per round.');
+      }
       const raiseTo = s.currentBet + step;
       const cost = raiseTo - player.bet;
-      if (cost > player.chips) return this.error(socket, `You need €${cost} to raise to €${raiseTo}.`);
+      if (cost + due > player.chips) {
+        return this.error(socket, `You need ${euro(cost + due)} to raise to ${euro(raiseTo)}${due ? ` (incl. ${euro(due)} owed)` : ''}.`);
+      }
 
+      const paidDebt = due ? this.payDebt(player) : 0;
       player.chips -= cost;
       player.bet = raiseTo;
+      player.handBets += cost;
       s.pot += cost;
       s.currentBet = raiseTo;
+      s.raisesThisRound++;
+      s.lastRaiserId = player.id;
       player.hasActed = true;
-      player.lastAction = player.chips === 0 ? `All-in €${raiseTo}` : `Raise €${raiseTo}`;
+      player.lastAction = player.chips === 0 ? `All-in ${euro(raiseTo)}` : `Raise ${euro(raiseTo)}`;
       // Everyone else has to respond to the raise.
       for (const p of s.players) if (p !== player && !p.isFolded) p.hasActed = false;
-      this.log(`${player.name} raised to €${raiseTo}.`);
+      const verb = s.raisesThisRound > 1 ? 're-raised' : 'raised';
+      this.log(`${player.name} ${verb} to ${euro(raiseTo)}${paidDebt ? ` (+ ${euro(paidDebt)} owed)` : ''}.`);
       this.promptNextBettor(player.seatIndex);
     }
   }
@@ -435,25 +589,27 @@ export class GameManager {
     this.promptNextBettor(player.seatIndex);
   }
 
-  private applyCall(player: Player, blind: boolean, timedOut = false) {
+  private applyCall(player: Player, opts: { banker?: boolean; timedOut?: boolean; paidDebt?: number } = {}) {
     const s = this.state;
     const owed = s.currentBet - player.bet;
     const pay = Math.min(player.chips, owed);
     player.chips -= pay;
     player.bet += pay;
+    player.handBets += pay;
     s.pot += pay;
     player.hasActed = true;
 
     let label: string;
     if (owed === 0) label = 'Check';
-    else if (player.chips === 0) label = pay < owed ? `All-in €${player.bet}` : 'All-in';
-    else label = `Call €${pay}`;
+    else if (player.chips === 0) label = pay < owed ? `All-in ${euro(player.bet)}` : 'All-in';
+    else label = `Call ${euro(pay)}`;
     player.lastAction = label;
 
-    const who = blind ? `${player.name} (blind banker)` : player.name;
-    const prefix = timedOut ? `${player.name} ran out of time — ` : `${who} `;
-    const verb = owed === 0 ? 'checks' : pay < owed || player.chips === 0 ? `goes all-in (€${pay})` : `calls €${pay}`;
-    this.log(`${prefix}${verb}.`);
+    const who = opts.banker ? `${player.name} (banker)` : player.name;
+    const prefix = opts.timedOut ? `${player.name} ran out of time — ` : `${who} `;
+    const verb = owed === 0 ? 'checks' : pay < owed || player.chips === 0 ? `goes all-in (${euro(pay)})` : `calls ${euro(pay)}`;
+    const debt = opts.paidDebt ? ` and pays ${euro(opts.paidDebt)} owed` : '';
+    this.log(`${prefix}${verb}${debt}.`);
     this.promptNextBettor(player.seatIndex);
   }
 
@@ -463,15 +619,10 @@ export class GameManager {
     if (s.phase !== 'BETTING_1' && s.phase !== 'BETTING_2') return;
     if (player.hasLooked || player.isFolded) return;
 
-    // The banker peeks: they see their hand and bet like everyone else (never fold),
-    // but they forfeit the privilege of taking a strong talon.
+    // The banker peeks: they see their hand but still call everything, and they
+    // forfeit the privilege of taking a strong talon.
     player.hasLooked = true;
     this.log(`${player.name} (banker) looked at their cards — talon privilege forfeited.`);
-
-    // If their blind auto-call was about to fire, give them a real decision instead.
-    if (s.turnIndex === player.seatIndex && s.turnDeadline === 0 && this.needsToAct(player)) {
-      this.armTurnTimer(player);
-    }
   }
 
   private dealThirdCard() {
@@ -746,7 +897,7 @@ export class GameManager {
 
     const activePlayers = s.players.filter(p => !p.isFolded);
 
-    // Sort by turn order (closest to the banker's left first) to resolve 31 vs 31 ties.
+    // Turn order (closest to the banker's left first): decides "the first Špic".
     const dealerSeat = s.dealerIndex;
     activePlayers.sort((a, b) => {
       const distA = (a.seatIndex - (dealerSeat + 1) + SEATS) % SEATS;
@@ -756,16 +907,16 @@ export class GameManager {
 
     if (activePlayers.length === 0) {
       // Everyone folded (Bicykels) -> nobody wins.
-      voidReason = 'Nobody is left in the hand.';
+      voidReason = 'Nobody is left in the hand';
     } else if (activePlayers.length === 1) {
-      // One survivor must hold a Flush/Triple to take the pot.
+      // One survivor must hold a Flush/Trojica to take the pot.
       const survivor = activePlayers[0];
       const res = HandEvaluator.evaluate(survivor.hand);
       if (res.score > 0) {
         winners = [survivor];
         byFold = true;
       } else {
-        voidReason = `${survivor.name} has no Flush or Trojica.`;
+        voidReason = `${survivor.name} has no Flush or Trojica`;
         this.log(`Everyone else folded, but ${survivor.name} has no Flush/Trojica. Pot stays!`);
       }
     } else {
@@ -780,19 +931,20 @@ export class GameManager {
           bestTieBreak = tieBreak;
           winners = [p];
         } else if (result.score === bestScore && tieBreak === bestTieBreak) {
-          // Priority rule for 31 (Špic): the earliest in turn order wins.
-          if (bestScore === 31) continue;
           winners.push(p);
         }
       }
+      // Two Špics are a tie — except right after a Špic tie, when the first Špic wins.
+      if (winners.length > 1 && bestScore === 31 && s.spicTie) winners = [winners[0]];
     }
 
     // --- ESCALATION RULE (progressive pot) ---
-    // After a tie, the next winner must EXCEED the tied score to take the pot.
+    // After a tie, the next winner must beat the tied score (after a Špic tie, a Špic is enough).
     let thresholdMiss: { name: string; score: number } | null = null;
     if (winners.length === 1 && s.potThreshold > 0) {
       const winnerScore = HandEvaluator.evaluate(winners[0].hand).score;
-      if (winnerScore <= s.potThreshold) {
+      const qualifies = winnerScore > s.potThreshold || (s.spicTie && winnerScore === 31);
+      if (!qualifies) {
         thresholdMiss = { name: winners[0].name, score: winnerScore };
         this.log(`${winners[0].name} won the hand with ${winnerScore}, but needed more than ${s.potThreshold}. Pot stays!`);
         winners = [];
@@ -809,11 +961,18 @@ export class GameManager {
       s.gameWinner = winner.id;
       s.pot = 0;
       s.potThreshold = 0;
-      this.log(`${winner.name} wins €${pot}${byFold ? ' — everyone else folded' : ` with ${desc}`}.`);
+      s.spicTie = false;
+      s.carryTotal = 0;
+      // A won pot wipes every debt and brings benched players back.
+      for (const p of s.players) {
+        p.debt = 0;
+        p.benched = false;
+      }
+      this.log(`${winner.name} wins ${euro(pot)}${byFold ? ' — everyone else folded' : ` with ${desc}`}.`);
       result = {
         winnerIds: [winner.id],
         amount: pot,
-        headline: `${winner.name} wins €${pot}`,
+        headline: `${winner.name} wins ${euro(pot)}`,
         detail: byFold ? 'Everyone else folded' : desc,
       };
     } else {
@@ -821,10 +980,14 @@ export class GameManager {
       if (winners.length > 1) {
         const tiedScore = HandEvaluator.evaluate(winners[0].hand).score;
         s.potThreshold = Math.max(s.potThreshold, tiedScore);
+        if (tiedScore === 31) s.spicTie = true;
       }
-      const next = s.potThreshold > 0 ? ` Next winner needs more than ${s.potThreshold}.` : '';
-      this.log(`${winners.length > 1 ? 'Tie' : 'No winner'} — the €${pot} pot stays.${next}`);
+      this.chargeOutsiders(activePlayers);
 
+      const nextRule = s.spicTie ? ' The first Špic takes it.' : s.potThreshold > 0 ? ` Next winner needs more than ${s.potThreshold}.` : '';
+      this.log(`${winners.length > 1 ? 'Tie' : 'No winner'} — the ${euro(pot)} pot stays.${nextRule}`);
+
+      const needs = s.spicTie ? 'the first Špic takes it' : `next winner must beat ${s.potThreshold}`;
       let detail: string;
       if (thresholdMiss) {
         detail = `${thresholdMiss.name} had ${thresholdMiss.score} but needed more than ${s.potThreshold}`;
@@ -832,18 +995,36 @@ export class GameManager {
         const why = winners.length > 1
           ? `${winners.map(w => w.name).join(' & ')} tied on ${HandEvaluator.evaluate(winners[0].hand).description}`
           : voidReason || 'Nobody qualified';
-        detail = s.potThreshold > 0 ? `${why} · next winner must beat ${s.potThreshold}` : why;
+        detail = s.potThreshold > 0 ? `${why} · ${needs}` : why;
       }
       result = {
         winnerIds: [],
         amount: pot,
-        headline: winners.length > 1 ? `Tie — €${pot} stays` : `Pot of €${pot} stays`,
+        headline: winners.length > 1 ? `Tie — ${euro(pot)} stays` : `Pot of ${euro(pot)} stays`,
         detail,
       };
     }
     s.result = result;
 
     this.setFlowTimer(() => this.resetToWaiting(), this.timings.showdown);
+  }
+
+  // The pot stays: everyone who didn't play this hand to the end owes what the
+  // finishers paid (beyond the ante), minus what they already put in themselves.
+  private chargeOutsiders(finishers: Player[]) {
+    const s = this.state;
+    const full = finishers.reduce((max, p) => Math.max(max, p.handBets), 0);
+    if (full === 0) return;
+    s.carryTotal += full;
+    const owing: string[] = [];
+    for (const p of s.players) {
+      if (finishers.includes(p)) continue;
+      const add = Math.max(0, full - p.handBets);
+      if (add === 0) continue;
+      p.debt += add;
+      owing.push(`${p.name} ${euro(p.debt)}`);
+    }
+    if (owing.length) this.log(`To play on for this pot: ${owing.join(', ')}.`);
   }
 
   private resetToWaiting() {
@@ -860,6 +1041,7 @@ export class GameManager {
     for (const p of s.players) {
       p.hand = [];
       p.bet = 0;
+      p.handBets = 0;
       p.isFolded = false;
       p.sittingOut = false;
       p.specialStatus = undefined;
@@ -914,10 +1096,13 @@ export class GameManager {
     const player = this.playerAt(s.turnIndex);
     if (!player || player.isFolded) return;
 
-    if (s.phase === 'BETTING_1' || s.phase === 'BETTING_2') {
+    if (s.phase === 'DEALER_CHOICE') {
+      this.skipDeal(player, 'ran out of time — skips dealing');
+    } else if (s.phase === 'BETTING_1' || s.phase === 'BETTING_2') {
       const owed = s.currentBet - player.bet;
-      // Banker can't fold, and a free check is never worse than folding.
-      if (player.seatIndex === s.dealerIndex || owed === 0) this.applyCall(player, false, true);
+      // Never spend money automatically: a free check is fine, anything else folds.
+      if (player.seatIndex === s.dealerIndex) this.applyCall(player, { banker: true, timedOut: true });
+      else if (owed === 0 && !this.debtDue(player)) this.applyCall(player, { timedOut: true });
       else this.fold(player, 'ran out of time — fold');
     } else if (s.phase === 'TALON_SWAP') {
       this.log(`${player.name} ran out of time — pass.`);
@@ -1021,6 +1206,8 @@ export class GameManager {
     });
 
     const swapOptions = viewer && this.canSwapNow(viewer) && s.turnDeadline > 0 ? this.swapOptionsFor(viewer) : [];
+    const betting = s.phase === 'BETTING_1' || s.phase === 'BETTING_2';
+    const canRaise = !!viewer && betting && s.turnIndex === viewer.seatIndex && this.canRaise(viewer);
 
     return {
       ...s,
@@ -1028,7 +1215,16 @@ export class GameManager {
       you: viewerId ?? null,
       serverNow: Date.now(),
       swapOptions,
-      config: { ante: ANTE, maxRaise: MAX_RAISE, minBuyIn: MIN_BUY_IN, maxBuyIn: MAX_BUY_IN, seats: SEATS },
+      canRaise,
+      config: {
+        ante: ANTE,
+        raiseSteps: RAISE_STEPS,
+        maxRaises: MAX_RAISES,
+        minBuyIn: MIN_BUY_IN,
+        maxBuyIn: MAX_BUY_IN,
+        defaultBuyIn: DEFAULT_BUY_IN,
+        seats: SEATS,
+      },
     };
   }
 }

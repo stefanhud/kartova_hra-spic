@@ -3,9 +3,13 @@
 ŠPIC is a real-time, multiplayer card game inspired by the Slovak bar game *Špic*. Up to six players sit at a shared table on their phones, build the strongest three-card hand they can, and try to take the pot. The client is built with React and Vite; the Node.js server runs the game and synchronizes players with Socket.IO.
 
 <p align="center">
-  <img src="docs/screenshots/phone-betting.jpg" width="220" alt="Betting round on a phone" />
+  <img src="docs/screenshots/phone-betting.jpg" width="220" alt="Betting round: the last player may re-raise" />
   <img src="docs/screenshots/phone-swap.jpg" width="220" alt="Swapping a card with the talon" />
-  <img src="docs/screenshots/phone-showdown.jpg" width="220" alt="Showdown with revealed hands" />
+  <img src="docs/screenshots/phone-showdown.jpg" width="220" alt="A tie at 29: the pot stays and the outsiders owe" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/phone-owes.jpg" width="220" alt="Paying what you owe at your first decision" />
+  <img src="docs/screenshots/phone-banker-choice.jpg" width="220" alt="A banker who owes: pay and deal, or skip" />
 </p>
 <p align="center">
   <img src="docs/screenshots/phone-landscape.jpg" width="560" alt="Landscape layout on a phone" />
@@ -20,19 +24,27 @@
 - Countdown ring on the active player, vibration and a tab-title alert when it's your turn
 - Reconnects without losing your seat: reload the page, switch apps or change networks mid-hand and you keep your seat, chips and cards
 - The screen stays awake while you're seated, and the game can be added to your home screen as an app
-- €5 ante and a configurable €5–€100 buy-in, with a rebuy button when you run out of chips
+- Pub stakes: €0.50 ante, raises of €0.50 / €1 / €2, and a €5–€50 buy-in with a rebuy button when you run out of chips
+- The carried-over pot is tracked for you: who owes what to play on, and who has to beat which score
 - Docker and Docker Compose deployment
 
 ## How to play
 
 1. Open the game and tap an empty **Sit** seat. Enter a name and choose a buy-in.
-2. When at least two players are seated, anyone at the table can tap **Deal cards**. Each player antes €5 and receives two cards.
-3. Take turns checking, calling, raising (+€1 to +€3) or folding in the first betting round. The banker (marked **D**) cannot fold and plays blind, calling automatically. If the banker taps **Look at cards**, they give up the blind talon option and bet like everyone else.
-4. Each player still in the hand receives a third card, followed by a second betting round.
-5. The server reveals a four-card talon. Starting left of the banker, each player may replace one card with a talon card. The new hand must beat the bar, which is the best hand swapped in so far; otherwise the player passes. If the talon holds a Flush or Trojica and the banker never looked, the banker may take it instead.
-6. At showdown the best hand wins the pot. If the round ties, the pot carries over and a future winner must beat the tied score.
+2. When at least two players are seated, anyone at the table can tap **Deal cards**. Each player antes €0.50 and receives two cards.
+3. **First betting round.** Starting left of the banker (marked **D**), players check, call or fold. Only the **first player** (left of the banker) and the **last player** (right of the banker) may raise, by €0.50, €1 or €2. There is at most one raise and one re-raise per round. The banker never folds and calls everything automatically, playing blind.
+4. Each player still in the hand receives a third card, followed by a second betting round with the same rules.
+5. The server reveals a four-card talon. Starting left of the banker, each player may replace one card with a talon card. The new hand must beat the bar, which is the best hand swapped in so far; otherwise the player passes. If the talon holds a Flush or Trojica and the banker never looked at their cards, the banker may take it instead. **Look at cards** reveals the banker's hand to them but gives up this option (they still call everything).
+6. At showdown the best hand wins the pot. You need a Flush or Trojica to take it — even when everyone else folded.
 
 Tap **?** in the top bar for the rules, and the log icon (or the ticker) for the table log.
+
+### When the pot stays
+
+- **Ties:** if the best hands tie, the pot stays and the next winner must beat the tied score (a tie at 29 needs 30 or more). Two Špics in one hand are a tie too; after a tie on Špic, the **first Špic** in turn order takes the pot.
+- **Playing on for a carried pot:** everyone who didn't play the hand to the end owes what the finishers put in (beyond the ante), minus what they paid themselves. Players who were not at the table owe the full amount, and debts from several carried hands add up. You pay it at your first decision of the next hand (the buttons show "+ €X owed"), or fold and keep owing.
+- **A banker who owes:** before the deal they choose **Pay & deal** or **Skip**. Skipping means sitting out until the pot is won, and the deal passes to the next player who owes nothing.
+- When someone finally wins the pot, all debts are cleared and everyone is back in.
 
 ### Hand scoring
 
@@ -46,7 +58,7 @@ Hands are scored from three cards (A = 11, K/Q/J/10 = 10, 9/8/7 = face value):
 
 ### Timers and connections
 
-- The turn clock is 15 seconds. If a player runs out of time, the server checks or calls when that is free (or for the banker), folds when facing a bet, and passes during the swap phase.
+- The turn clock is 15 seconds. If a player runs out of time, the server checks when that is free and folds otherwise (it never spends money for you), passes during the swap phase, and skips the deal for a banker who owes.
 - A player whose connection drops keeps their seat for 2 minutes. While they are offline their turns run on a 5-second clock, and they are not dealt into new hands. If they don't come back, they are removed and fold any hand in progress.
 - Players who sit down during a hand wait for the next deal; players with no chips sit out until they rebuy.
 
@@ -77,7 +89,7 @@ Open [http://localhost:5173](http://localhost:5173). The Vite client connects to
 
 ### Tests
 
-The server has a multi-player simulation test. It runs bot tables of 2–6 players over real sockets, with random raises, folds, swaps, timeouts, disconnects, reconnects, rebuys and late joins. It checks that money is conserved, no card is dealt twice, hidden cards stay hidden and a round can never stall:
+The server has two test suites. The rule tests replay scripted hands with a stacked deck (ties and debts, a banker who pays or skips, Špic ties, raise limits, fold-outs). The simulation runs bot tables of 2–6 players over real sockets, with random raises, folds, swaps, timeouts, disconnects, reconnects, rebuys and late joins. After every change of state it checks that money is conserved, no card is dealt twice, hidden cards stay hidden, only allowed players raise and a round can never stall:
 
 ```bash
 npm --prefix server test

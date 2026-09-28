@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { LogEntry } from '../types';
+import { euro } from '../money';
 
 interface SitProps {
   seat: number;
@@ -46,12 +47,12 @@ export function SitSheet({ seat, initialName, initialBuyIn, minBuyIn, maxBuyIn, 
         <div className="field">
           <div className="field__row">
             <span className="field__label">Buy-in</span>
-            <span className="field__value">€{buyIn}</span>
+            <span className="field__value">{euro(buyIn)}</span>
           </div>
           <div className="chips-pick">
-            {[20, 50, 100].filter(v => v >= minBuyIn && v <= maxBuyIn).map(v => (
+            {[1000, 2000, 5000].filter(v => v >= minBuyIn && v <= maxBuyIn).map(v => (
               <button key={v} type="button" className={`chip-pick${buyIn === v ? ' is-on' : ''}`} onClick={() => setBuyIn(v)}>
-                €{v}
+                {euro(v)}
               </button>
             ))}
           </div>
@@ -60,7 +61,7 @@ export function SitSheet({ seat, initialName, initialBuyIn, minBuyIn, maxBuyIn, 
             className="slider"
             min={minBuyIn}
             max={maxBuyIn}
-            step={5}
+            step={500}
             value={buyIn}
             onChange={e => setBuyIn(Number(e.target.value))}
             aria-label="Buy-in amount"
@@ -103,9 +104,10 @@ export function RulesSheet({ onClose }: { onClose: () => void }) {
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close rules">✕</button>
         </div>
         <div className="rules">
-          <p>Everyone antes €5 and gets two cards. Bet, get a third card, bet again — then the four-card <b>talon</b> is dealt.</p>
+          <p>Everyone antes <b>€0.50</b> and gets two cards. Bet, get a third card, bet again — then the four-card <b>talon</b> is dealt.</p>
+          <p><b>Betting:</b> only the first player (left of the banker) and the last player (right of the banker) may raise, by €0.50, €1 or €2 — one raise and one re-raise per round. Everyone else calls or folds.</p>
+          <p>The <b>banker</b> (D) never folds and calls everything, playing blind. If the banker never looks and the talon holds a Flush or Trojica, they may take it. Looking at the cards gives that up.</p>
           <p>In the talon round each player may swap one card with the table, but only if the new hand <b>beats the bar</b> (the best swapped hand so far). Otherwise pass.</p>
-          <p>The <b>banker</b> (D) can't fold and plays blind. If they never look and the talon holds a Flush or Trojica, they may take it.</p>
           <ul>
             <li><b>Zlatý špic</b> — three aces · 33</li>
             <li><b>Špic</b> — flush worth 31</li>
@@ -113,7 +115,9 @@ export function RulesSheet({ onClose }: { onClose: () => void }) {
             <li><b>Flush</b> — three of a suit · sum of the cards (A 11, K/Q/J/10 10)</li>
             <li><b>Bicykel</b> — three suits, no pair: dead hand, auto-fold</li>
           </ul>
-          <p>A tie keeps the pot on the table, and the next winner must beat the tied score.</p>
+          <p>You need a Flush or Trojica to take the pot, even if everyone else folds.</p>
+          <p><b>Ties:</b> the pot stays. The next winner must beat the tied score — after a tie on Špic, the first Špic takes it. Two Špics in one hand are a tie.</p>
+          <p><b>Playing on for a carried pot:</b> whoever didn't play the tied hand to the end owes what the finishers paid (minus what they put in themselves). You pay it at your first decision of the next hand, or fold. A banker who owes can pay and deal, or skip and sit out until the pot is won.</p>
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useRef, type CSSProperties } from 'react';
 import { useElementSize } from '../hooks';
+import { euro } from '../money';
 import type { GameView, Player } from '../types';
 import { PlayingCard } from './PlayingCard';
 import { Seat, type TurnTimer } from './Seat';
@@ -22,8 +23,9 @@ interface Props {
 function phaseCaption(v: GameView) {
   switch (v.phase) {
     case 'WAITING': return v.players.length < 2 ? 'Waiting for players' : 'Ready to deal';
-    case 'BETTING_1': return v.currentBet > 0 ? `Betting · round 1 · €${v.currentBet} to call` : 'Betting · round 1';
-    case 'BETTING_2': return v.currentBet > 0 ? `Betting · round 2 · €${v.currentBet} to call` : 'Betting · round 2';
+    case 'DEALER_CHOICE': return 'Pay or skip the deal';
+    case 'BETTING_1': return v.currentBet > 0 ? `Betting · round 1 · ${euro(v.currentBet)} bet` : 'Betting · round 1';
+    case 'BETTING_2': return v.currentBet > 0 ? `Betting · round 2 · ${euro(v.currentBet)} bet` : 'Betting · round 2';
     case 'DEALER_SPECIAL': return "Banker's option";
     case 'TALON_SWAP': return 'Talon swap';
     case 'SHOWDOWN': return 'Showdown';
@@ -85,9 +87,13 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
           <>
             <div className={`pot${view.pot > 0 ? '' : ' is-empty'}`} key={`pot-${view.pot}`}>
               <span className="pot__label">Pot</span>
-              <span className="pot__amount">€{view.pot}</span>
+              <span className="pot__amount">{euro(view.pot)}</span>
             </div>
-            {view.potThreshold > 0 && <div className="pill tone-gold">Win needs more than {view.potThreshold}</div>}
+            {view.potThreshold > 0 && (
+              <div className="pill tone-gold">
+                {view.spicTie ? 'First Špic takes the pot' : `Win needs more than ${view.potThreshold}`}
+              </div>
+            )}
           </>
         )}
 
@@ -116,7 +122,7 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
 
       {view.players.map(p => p.bet > 0 && (
         <div key={`bet-${p.id}`} className={`bet bp${posOf(p.seatIndex)}`}>
-          <span className="bet__chip" />€{p.bet}
+          <span className="bet__chip" />{euro(p.bet)}
         </div>
       ))}
 

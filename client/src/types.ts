@@ -7,16 +7,19 @@ export interface Card {
   value: number;
 }
 
-export type Phase = 'WAITING' | 'BETTING_1' | 'BETTING_2' | 'DEALER_SPECIAL' | 'TALON_SWAP' | 'SHOWDOWN';
+export type Phase = 'WAITING' | 'DEALER_CHOICE' | 'BETTING_1' | 'BETTING_2' | 'DEALER_SPECIAL' | 'TALON_SWAP' | 'SHOWDOWN';
 
 export interface Player {
   id: string;
   name: string;
   seatIndex: number;
-  chips: number;
+  chips: number;     // euro cents (all money is in cents)
   hand: Card[];
   isFolded: boolean;
   bet: number;
+  handBets: number;
+  debt: number;      // owed to the carried-over pot before playing on
+  benched?: boolean; // skipped dealing while owing: out until the pot is won
   specialStatus?: 'BICYKEL';
   isFaceUp?: boolean;
   score?: number;
@@ -63,12 +66,26 @@ export interface GameView {
   turnNonce: number;
   turnDeadline: number;
   turnDuration: number;
+  raiserSeats: number[];
+  raisesThisRound: number;
+  lastRaiserId: string | null;
+  spicTie: boolean;
+  carryTotal: number;
   roundId: number;
   result: RoundResult | null;
   you: string | null;
   serverNow: number;
   swapOptions: SwapOption[];
-  config: { ante: number; maxRaise: number; minBuyIn: number; maxBuyIn: number; seats: number };
+  canRaise: boolean;
+  config: {
+    ante: number;
+    raiseSteps: number[];
+    maxRaises: number;
+    minBuyIn: number;
+    maxBuyIn: number;
+    defaultBuyIn: number;
+    seats: number;
+  };
 }
 
 // A received view plus the client/server clock difference measured on arrival.

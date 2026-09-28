@@ -1,5 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { useNow } from '../hooks';
+import { euro, stepLabel } from '../money';
 import type { GameView, Player } from '../types';
 import { isBetting, isHidden } from '../types';
 import { PlayingCard } from './PlayingCard';
@@ -12,6 +13,7 @@ export interface DockActions {
   swap: (hand: number, talon: number) => void;
   pass: () => void;
   dealerSpecial: (action: 'TAKE' | 'PASS') => void;
+  dealerChoice: (action: 'PAY' | 'SKIP') => void;
   deal: () => void;
   rebuy: () => void;
   clearSelection: () => void;
@@ -42,6 +44,8 @@ export function Dock({ view, me, clockOffset, connected, selection, actions, reb
   const swapping = hasClock && view.phase === 'TALON_SWAP';
   const sel = swapping && selection.nonce === view.turnNonce ? selection : null;
   const turnPlayer = view.players.find(p => p.seatIndex === view.turnIndex);
+  // Debt from a carried-over pot is paid at your first decision of the hand.
+  const due = me && view.phase === 'BETTING_1' && !isBanker ? me.debt : 0;
 
   // ----- status line -----
   let status: string;
@@ -54,16 +58,27 @@ export function Dock({ view, me, clockOffset, connected, selection, actions, reb
   } else if (view.phase === 'SHOWDOWN') {
     status = 'Next hand in a moment…';
   } else if (view.phase === 'WAITING') {
-    const ready = view.players.filter(p => p.connected && p.chips > 0).length;
+    const ready = view.players.filter(p => p.connected && p.chips > 0 && !p.benched).length;
     if (me.chips === 0) status = 'Out of chips — rebuy to keep playing';
+    else if (me.benched) status = 'You skipped dealing — back in when the pot is won';
     else if (ready < 2) status = 'Waiting for another player…';
+    else if (me.debt > 0) status = `You owe ${euro(me.debt)} to play on for this pot`;
     else status = `${ready} players ready — anyone can deal`;
+  } else if (view.phase === 'DEALER_CHOICE') {
+    if (hasClock) {
+      tone = 'turn';
+      status = `Your deal — you owe ${euro(me.debt)}`;
+    } else {
+      status = turnPlayer ? `${turnPlayer.name} decides whether to deal…` : 'Choosing the banker…';
+    }
+  } else if (me.benched) {
+    status = 'You sit out until the pot is won';
   } else if (me.sittingOut) {
     status = 'You join from the next hand';
   } else if (me.isFolded) {
     status = turnPlayer ? `You're out this hand · ${turnPlayer.name} to act` : "You're out this hand";
   } else if (onTurn && !hasClock) {
-    status = view.phase === 'TALON_SWAP' ? 'No swap can beat the bar — passing…' : 'Blind banker calls automatically…';
+    status = view.phase === 'TALON_SWAP' ? 'No swap can beat the bar — passing…' : 'You call automatically (banker)…';
   } else if (hasClock) {
     tone = 'turn';
     if (view.phase === 'TALON_SWAP') {
@@ -74,8 +89,10 @@ export function Dock({ view, me, clockOffset, connected, selection, actions, reb
     } else if (view.phase === 'DEALER_SPECIAL') {
       status = 'Banker’s option — take the table hand?';
     } else {
-      status = 'Your turn';
+      status = due > 0 ? `Your turn — pay ${euro(due)} owed to play on` : 'Your turn';
     }
+  } else if (isBanker && isBetting(view.phase)) {
+    status = turnPlayer ? `Banker: you call everything · ${turnPlayer.name} to act` : 'Banker: you call everything';
   } else {
     status = turnPlayer ? `Waiting for ${turnPlayer.name}…` : 'Dealing…';
   }
@@ -85,40 +102,67 @@ export function Dock({ view, me, clockOffset, connected, selection, actions, reb
   const owed = me ? Math.max(0, view.currentBet - me.bet) : 0;
 
   if (me && view.phase === 'WAITING') {
-    const ready = view.players.filter(p => p.connected && p.chips > 0).length;
+    const ready = view.players.filter(p => p.connected && p.chips > 0 && !p.benched).length;
     controls = me.chips === 0 ? (
-      <button type="button" className="btn btn--primary btn--wide" onClick={actions.rebuy}>Rebuy €{rebuyAmount}</button>
+      <button type="button" className="btn btn--primary btn--wide" onClick={actions.rebuy}>Rebuy {euro(rebuyAmount)}</button>
     ) : (
       <button type="button" className="btn btn--primary btn--wide" onClick={actions.deal} disabled={ready < 2}>Deal cards</button>
     );
-  } else if (me && inRound && !me.isFolded && !me.sittingOut && isBetting(view.phase)) {
-    const active = hasClock;
+  } else if (me && view.phase === 'DEALER_CHOICE' && hasClock) {
+    const need = me.debt + view.config.ante;
     controls = (
-      <div className={`betbar${active ? '' : ' is-idle'}`}>
-        {isBanker ? (
-          <div className="btn btn--ghost btn--note" aria-disabled="true">Banker<br />can't fold</div>
-        ) : (
-          <button type="button" className="btn btn--danger" disabled={!active} onClick={() => actions.bet('FOLD')}>Fold</button>
-        )}
-        <button type="button" className="btn btn--primary" disabled={!active} onClick={() => actions.bet('CALL')}>
-          {owed === 0 ? 'Check' : owed >= me.chips ? `All-in €${me.chips}` : `Call €${owed}`}
+      <div className="duo">
+        <button type="button" className="btn btn--primary btn--stack" disabled={me.chips < need} onClick={() => actions.dealerChoice('PAY')}>
+          Pay {euro(me.debt)} &amp; deal
+          <span className="btn__sub">{me.chips < need ? `need ${euro(need)}` : 'and play this hand'}</span>
         </button>
-        <div className="raise" role="group" aria-label="Raise by">
-          <span className="raise__label">Raise</span>
-          <div className="raise__row">
-            {Array.from({ length: view.config.maxRaise }, (_, i) => i + 1).map(step => {
-              const cost = view.currentBet + step - me.bet;
-              return (
-                <button key={step} type="button" className="btn btn--raise" disabled={!active || cost > me.chips}
-                  onClick={() => actions.bet('RAISE', step)} aria-label={`Raise by €${step}`}>
-                  +{step}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <button type="button" className="btn btn--neutral btn--stack" onClick={() => actions.dealerChoice('SKIP')}>
+          Skip
+          <span className="btn__sub">sit out until the pot is won</span>
+        </button>
       </div>
     );
+  } else if (me && inRound && !me.isFolded && !me.sittingOut && isBetting(view.phase)) {
+    if (isBanker) {
+      controls = (
+        <div className="btn btn--ghost btn--note btn--wide" aria-disabled="true">
+          The banker calls everything automatically
+        </div>
+      );
+    } else {
+      const active = hasClock;
+      const cantPayDebt = due > me.chips;
+      const allIn = owed > 0 && owed >= me.chips - due;
+      const callText = owed === 0 ? 'Check' : allIn ? `All-in ${euro(me.chips - due)}` : `Call ${euro(owed)}`;
+      const mayRaise = view.raiserSeats.includes(me.seatIndex);
+      const raiseLabel = !mayRaise ? 'No raise' : active && !view.canRaise ? 'Raise used' : 'Raise';
+      controls = (
+        <div className={`betbar${active ? '' : ' is-idle'}`}>
+          <button type="button" className="btn btn--danger" disabled={!active} onClick={() => actions.bet('FOLD')}>Fold</button>
+          <button type="button" className={`btn btn--primary${due ? ' btn--stack' : ''}`} disabled={!active || cantPayDebt}
+            onClick={() => actions.bet('CALL')}>
+            {callText}
+            {due > 0 && <span className="btn__sub">{cantPayDebt ? `can't pay ${euro(due)}` : `+ ${euro(due)} owed`}</span>}
+          </button>
+          <div className={`raise${mayRaise ? '' : ' is-off'}`} role="group" aria-label="Raise by"
+            title={mayRaise ? 'One raise and one re-raise per round' : 'Only the first and last player may raise'}>
+            <span className="raise__label">{raiseLabel}</span>
+            <div className="raise__row">
+              {view.config.raiseSteps.map(step => {
+                const cost = view.currentBet + step - me.bet + due;
+                return (
+                  <button key={step} type="button" className="btn btn--raise"
+                    disabled={!active || !view.canRaise || cost > me.chips}
+                    onClick={() => actions.bet('RAISE', step)} aria-label={`Raise by ${euro(step)}`}>
+                    +{stepLabel(step)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
   } else if (swapping) {
     const option = sel && sel.hand != null && sel.talon != null
       ? view.swapOptions.find(o => o.h === sel.hand && o.t === sel.talon)

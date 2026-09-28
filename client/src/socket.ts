@@ -85,17 +85,26 @@ export function forgetSeat() {
   if (read(() => localStorage, LAST_SEAT_KEY) === token) write(() => localStorage, LAST_SEAT_KEY, null);
 }
 
-const PREFS_KEY = 'spic.prefs';
+// Name and buy-in (euro cents) remembered for the sit-down sheet.
+const PREFS_KEY = 'spic.prefs.v2';
+const OLD_PREFS_KEY = 'spic.prefs'; // buy-in was stored in whole euros before
 
-export function loadPrefs(): { name: string; buyIn: number } {
+export interface Prefs {
+  name: string;
+  buyIn: number | null; // null = use the table default
+}
+
+export function loadPrefs(): Prefs {
   try {
-    const p = JSON.parse(read(() => localStorage, PREFS_KEY) ?? '{}');
-    return { name: typeof p.name === 'string' ? p.name : '', buyIn: Number(p.buyIn) || 50 };
+    const p = JSON.parse(read(() => localStorage, PREFS_KEY) ?? 'null');
+    if (p) return { name: typeof p.name === 'string' ? p.name : '', buyIn: Number(p.buyIn) || null };
+    const old = JSON.parse(read(() => localStorage, OLD_PREFS_KEY) ?? '{}');
+    return { name: typeof old.name === 'string' ? old.name : '', buyIn: null };
   } catch {
-    return { name: '', buyIn: 50 };
+    return { name: '', buyIn: null };
   }
 }
 
-export function savePrefs(prefs: { name: string; buyIn: number }) {
+export function savePrefs(prefs: Prefs) {
   write(() => localStorage, PREFS_KEY, JSON.stringify(prefs));
 }

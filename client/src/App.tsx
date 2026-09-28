@@ -3,6 +3,7 @@ import { Dock, type DockActions } from './components/Dock';
 import { LogSheet, RulesSheet, SitSheet } from './components/Sheets';
 import { Table, type SwapSelection } from './components/Table';
 import { useWakeLock } from './hooks';
+import { euro } from './money';
 import { forgetSeat, loadPrefs, rememberSeat, savePrefs, socket } from './socket';
 import type { GameView, Snapshot } from './types';
 import { isBetting } from './types';
@@ -72,6 +73,7 @@ export default function App() {
   }, [showToast]);
 
   const view = snap?.view ?? null;
+  const buyIn = prefs.buyIn ?? view?.config.defaultBuyIn ?? 2000; // euro cents
   const me = view?.players.find(p => p.id === view.you) ?? null;
   const seated = !!me;
   const inRound = !!view && view.phase !== 'WAITING' && view.phase !== 'SHOWDOWN';
@@ -128,8 +130,9 @@ export default function App() {
       clearSelection();
     },
     dealerSpecial: action => socket.emit('dealerSpecial', action),
+    dealerChoice: action => socket.emit('dealerChoice', action),
     deal: () => socket.emit('startGame'),
-    rebuy: () => socket.emit('rebuy', prefs.buyIn),
+    rebuy: () => socket.emit('rebuy', buyIn),
     clearSelection,
     selectHand: i => select('hand', i),
   };
@@ -141,7 +144,7 @@ export default function App() {
   };
 
   const onSeatTap = (seat: number) => {
-    if (me) socket.emit('joinGame', me.name, seat, prefs.buyIn); // move seats between hands
+    if (me) socket.emit('joinGame', me.name, seat, buyIn); // move seats between hands
     else setSitSeat(seat);
   };
 
@@ -162,7 +165,7 @@ export default function App() {
       if (isBetting(view.phase)) {
         if (k === 'f') socket.emit('playerAction', 'FOLD');
         else if (k === 'c' || k === 'k') socket.emit('playerAction', 'CALL');
-        else if (['1', '2', '3'].includes(k)) socket.emit('playerAction', 'RAISE', Number(k));
+        else if (['1', '2', '3'].includes(k)) socket.emit('playerAction', 'RAISE', view.config.raiseSteps[Number(k) - 1]);
         else return;
         e.preventDefault();
       } else if (view.phase === 'TALON_SWAP' && k === 'p') {
@@ -190,7 +193,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand__name">ŠPIC</span>
-          <span className="brand__meta">ante €{view.config.ante}</span>
+          <span className="brand__meta">ante {euro(view.config.ante)}</span>
         </div>
         <button type="button" className="ticker" onClick={() => setSheet('log')} aria-label="Open table log">
           <span className="ticker__text" key={view.log[view.log.length - 1]?.id}>{lastLog}</span>
@@ -218,7 +221,7 @@ export default function App() {
         connected={connected}
         selection={selection}
         actions={actions}
-        rebuyAmount={prefs.buyIn}
+        rebuyAmount={buyIn}
       />
 
       {toast && <div className={`toast tone-${toast.tone}`} key={toast.id} role="alert">{toast.text}</div>}
@@ -228,7 +231,7 @@ export default function App() {
         <SitSheet
           seat={sitSeat}
           initialName={prefs.name}
-          initialBuyIn={prefs.buyIn}
+          initialBuyIn={buyIn}
           minBuyIn={view.config.minBuyIn}
           maxBuyIn={view.config.maxBuyIn}
           onConfirm={confirmSit}

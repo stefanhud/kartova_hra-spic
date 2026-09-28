@@ -583,6 +583,14 @@ input:focus-visible {
   color: #fff;
 }
 
+.seat__debt {
+  margin-top: 1px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
 .stage[data-short] .sp0 .seat__bet {
   justify-content: flex-start;
 }
@@ -1271,6 +1279,23 @@ button.card {
   width: 100%;
 }
 
+/* two-line button: main label + small note ("+ €2 owed") */
+.btn--stack {
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+}
+
+.btn__sub {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.raise.is-off .raise__label {
+  color: var(--muted);
+}
+
 .betbar {
   display: grid;
   grid-template-columns: 1fr 1.3fr 1.55fr;
@@ -1321,7 +1346,8 @@ button.card {
   background: rgba(74, 157, 255, 0.14);
   color: #a9d0ff;
   box-shadow: inset 0 0 0 1.5px rgba(74, 157, 255, 0.5);
-  font-size: 15px;
+  font-size: 14px;
+  letter-spacing: -0.02em;
 }
 
 .duo {

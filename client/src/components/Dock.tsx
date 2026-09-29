@@ -174,7 +174,7 @@ export function Dock({ view, me, clockOffset, connected, selection, actions }: P
           <button type="button" className="btn btn--ghost" onClick={actions.clearSelection}>{t('cancel')}</button>
         )}
         <button type="button" className="btn btn--neutral" onClick={actions.pass}>
-          {me && (me.score ?? 0) > view.minScoreToBeat ? t('keepHand') : t('pass')}
+          {me && (me.score ?? 0) > 0 && (me.score ?? 0) >= view.minScoreToBeat ? t('keepHand') : t('pass')}
         </button>
       </div>
     );

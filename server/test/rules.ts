@@ -274,6 +274,34 @@ async function mustBeatTiedScore(score: 29 | 30) {
   await h.close();
 }
 
+// Matching the bar is allowed: it makes a tie and the pot stays (reported from a real game).
+async function swapToTie() {
+  console.log('• a swap that only matches the bar is allowed and makes a tie');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 3, false);
+  const [, b, c] = bots;
+  await deal(h, bots, 0, [
+    'S8', 'S9', /* A (banker) */ 'C8', 'CJ', /* B */ 'D7', 'CA', /* C */
+    'D10', 'H10', 'CQ', // third cards
+    'H7', 'CK', 'C7', 'DA', // talon
+  ]);
+  for (let round = 0; round < 2; round++) {
+    await act(h, b, 1, 'playerAction', 'CALL');
+    await act(h, c, 2, 'playerAction', 'CALL');
+  }
+  await act(h, b, 1, 'swapCard', 2, 1); // H10 <-> CK: Flush 28, the bar
+  await waitFor(() => h.state().turnIndex === 2 && h.state().turnDeadline > 0, 1000, "C's swap turn");
+  await sleep(40);
+  check(!!c.view?.swapOptions.some(o => o.h === 0 && o.t === 2 && o.score === 28), 'C is offered D7 <-> C7 for 28 (ties the bar)');
+  await act(h, c, 2, 'swapCard', 0, 2);
+  check(player(h, 2).score === 28, `C swapped to 28 (score ${player(h, 2).score})`);
+  await showdown(h);
+  const s = h.state();
+  check(s.result?.winnerIds.length === 0 && s.pot > 0 && s.potThreshold === 28, `tie at 28: the pot stays (threshold ${s.potThreshold})`);
+  bots.forEach(x => x.disconnect());
+  await h.close();
+}
+
 // Set everyone's score directly (seat -> [score before the pot, paid into the current pot]).
 function setScores(h: Harness, scores: Record<number, [number, number]>) {
   let pot = 0;
@@ -395,6 +423,7 @@ async function hostSettings() {
   await mustBeatTiedScore(29);
   await mustBeatTiedScore(30);
   await cashOut();
+  await swapToTie();
   await hostSettings();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);

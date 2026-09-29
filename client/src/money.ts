@@ -1,19 +1,9 @@
-// Money arrives from the server in euro cents.
-export function euro(cents: number): string {
-  const abs = Math.abs(cents);
-  const text = abs % 100 === 0 ? String(abs / 100) : (abs / 100).toFixed(2);
-  return `${cents < 0 ? '-' : ''}€${text}`;
-}
+// Money arrives from the server in euro cents (formatting per language lives in i18n.ts).
 
-// Compact step label for raise buttons: 50 -> "0.50", 200 -> "2".
-export function stepLabel(cents: number): string {
-  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
-}
-
-// Running score: "+€6.50", "−€12", "±€0".
-export function balanceLabel(cents: number): string {
-  if (cents === 0) return '±€0';
-  return `${cents > 0 ? '+' : '−'}${euro(Math.abs(cents))}`;
+// Compact step label for raise buttons: 50 -> "0.50" ("0,50" in Slovak), 200 -> "2".
+export function stepLabel(cents: number, lang: 'en' | 'sk' = 'en'): string {
+  const text = cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
+  return lang === 'sk' ? text.replace('.', ',') : text;
 }
 
 export interface Payment {

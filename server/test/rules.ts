@@ -4,7 +4,6 @@
 import { Bot, FAST, Harness, check, failureCount, presetBanker, seatBots, sleep, stackDeck, startServer, unstackDeck, waitFor } from './harness';
 
 const SLOW_TURNS = { ...FAST, turn: 5000, offlineTurn: 5000 };
-const BUY_IN = 2000; // €20
 
 const player = (h: Harness, seat: number) => h.state().players.find(p => p.seatIndex === seat)!;
 
@@ -64,7 +63,7 @@ async function playTieAt29(h: Harness, bots: Bot[]) {
 async function tieChargesOutsiders() {
   console.log('• a tie at 29 keeps the pot and charges the players who did not finish');
   const h = await startServer(SLOW_TURNS);
-  const bots = await seatBots(h, 4, false, BUY_IN);
+  const bots = await seatBots(h, 4, false);
   await playTieAt29(h, bots);
 
   const s = h.state();
@@ -79,7 +78,7 @@ async function tieChargesOutsiders() {
   // A newcomer owes the full amount.
   const e = new Bot(h.url, 'Eva', false);
   await e.connect();
-  e.emit('joinGame', 'Eva', 4, BUY_IN);
+  e.emit('joinGame', 'Eva', 4);
   await waitFor(() => !!h.state().players.find(p => p.name === 'Eva'), 500, 'Eva seated');
   check(h.state().players.find(p => p.name === 'Eva')?.debt === 200, 'a newcomer owes €2');
   e.emit('leaveGame');
@@ -104,7 +103,7 @@ async function tieChargesOutsiders() {
 async function dealerWhoOwesChooses(choice: 'PAY' | 'SKIP') {
   console.log(`• the next banker owes money and chooses to ${choice === 'PAY' ? 'pay and deal' : 'skip until the pot is won'}`);
   const h = await startServer(SLOW_TURNS);
-  const bots = await seatBots(h, 4, false, BUY_IN);
+  const bots = await seatBots(h, 4, false);
   await playTieAt29(h, bots);
 
   await deal(h, bots, 2); // C (owes €1) is next to deal
@@ -134,7 +133,7 @@ async function dealerWhoOwesChooses(choice: 'PAY' | 'SKIP') {
 async function spicTieThenFirstSpicWins() {
   console.log('• two Špics tie; after that, the first Špic takes the pot');
   const h = await startServer(SLOW_TURNS);
-  const bots = await seatBots(h, 3, false, BUY_IN);
+  const bots = await seatBots(h, 3, false);
   const [a, b, c] = bots;
 
   await deal(h, bots, 0, [
@@ -167,7 +166,7 @@ async function spicTieThenFirstSpicWins() {
   await showdown(h);
   s = h.state();
   check(s.gameWinner === player(h, 0).id, 'A (first Špic after the banker) wins');
-  check(player(h, 0).chips === BUY_IN - 100 + pot + 150, `A collects the whole carried pot (chips ${player(h, 0).chips})`);
+  check(player(h, 0).balance === -100 + pot + 150, `A collects the whole carried pot (score ${player(h, 0).balance})`);
   check(!s.spicTie && s.potThreshold === 0 && s.pot === 0, 'the carry-over is reset');
 
   bots.forEach(x => x.disconnect());
@@ -178,7 +177,7 @@ async function spicTieThenFirstSpicWins() {
 async function raiseRules() {
   console.log('• only the first and last player raise, one raise and one re-raise per round');
   const h = await startServer(SLOW_TURNS);
-  const bots = await seatBots(h, 4, false, BUY_IN);
+  const bots = await seatBots(h, 4, false);
   const [, b, c, d] = bots;
   await deal(h, bots, 0, [
     'H7', 'H8', 'S7', 'S8', 'D7', 'D8', 'C7', 'C8',
@@ -221,7 +220,7 @@ async function raiseRules() {
 async function foldOutMustProve(withFlush: boolean) {
   console.log(`• everyone folds in round 1 — the banker ${withFlush ? 'makes a flush with the third card and wins' : 'has nothing, so the pot stays'}`);
   const h = await startServer(SLOW_TURNS);
-  const bots = await seatBots(h, 3, false, BUY_IN);
+  const bots = await seatBots(h, 3, false);
   await deal(h, bots, 0, withFlush
     ? ['H7', 'H8', 'C7', 'C8', 'D7', 'D8', 'H9', 'HA', 'SA', 'DK', 'CK']
     : ['H7', 'S8', 'C7', 'C8', 'D7', 'D8', 'D9', 'HA', 'SA', 'DK', 'CK']);
@@ -233,7 +232,7 @@ async function foldOutMustProve(withFlush: boolean) {
   const banker = player(h, 0);
   check(banker.hand.length === 3, 'the banker got a third card before anything was decided');
   if (withFlush) {
-    check(s.gameWinner === banker.id && banker.chips === BUY_IN + 100, 'the banker wins with the flush');
+    check(s.gameWinner === banker.id && banker.balance === 100, 'the banker wins with the flush');
   } else {
     check(!s.gameWinner && s.pot === 150, 'no Flush/Trojica: the pot stays');
   }
@@ -245,7 +244,7 @@ async function foldOutMustProve(withFlush: boolean) {
 async function mustBeatTiedScore(score: 29 | 30) {
   console.log(`• after a tie at 29, a winner with ${score} ${score === 29 ? 'does not get the pot' : 'takes the pot'}`);
   const h = await startServer(SLOW_TURNS);
-  const bots = await seatBots(h, 4, false, BUY_IN);
+  const bots = await seatBots(h, 4, false);
   const [a, , c, d] = bots;
   await playTieAt29(h, bots);
   const carried = h.state().pot;
@@ -275,34 +274,112 @@ async function mustBeatTiedScore(score: 29 | 30) {
   await h.close();
 }
 
-// A banker with €1 left keeps calling raises: the missing money comes from their wallet.
-async function bankerTopsUp() {
-  console.log('• a banker who runs out of chips tops up from the wallet and keeps calling');
-  const h = await startServer(SLOW_TURNS);
-  const bots = await seatBots(h, 3, false, 500); // €5 each
-  const [a, b, c] = bots;
-  await deal(h, bots, 0, ['H7', 'H8', 'S7', 'S8', 'D7', 'D8', 'H9', 'S9', 'D9', 'HA', 'SA', 'DK', 'CK']);
-  // The banker has just €1 left (move €3.50 of their chips into the pot to keep the books balanced).
-  player(h, 0).chips -= 350;
-  h.state().pot += 350;
-  await act(h, b, 1, 'playerAction', 'RAISE', 200);
-  await act(h, c, 2, 'playerAction', 'RAISE', 200);
-  await act(h, b, 1, 'playerAction', 'CALL');
-  await waitFor(() => h.state().phase === 'BETTING_2', 1000, 'second round');
-  const banker = player(h, 0);
-  check(banker.bet === 0 && banker.handBets === 400, `the banker paid the full €4 (paid ${banker.handBets})`);
-  check(banker.chips === 0 && banker.bought === 500 + 300, `€3 came from the wallet (bought ${banker.bought})`);
-  check(!banker.isFolded, 'the banker is still in the hand');
+// Set everyone's score directly (seat -> [score before the pot, paid into the current pot]).
+function setScores(h: Harness, scores: Record<number, [number, number]>) {
+  let pot = 0;
+  for (const [seat, [before, share]] of Object.entries(scores)) {
+    const p = player(h, Number(seat));
+    p.balance = before - share;
+    p.potShare = share;
+    pot += share;
+  }
+  h.state().pot = pot;
+  (h.gm as any).scheduleEmit(); // refresh everyone's view
+}
 
-  // A normal player short of chips can top up and call too.
-  const zuzka = player(h, 2);
-  h.state().pot += zuzka.chips - 50; // Zuzka is down to €0.50
-  zuzka.chips = 50;
-  await act(h, b, 1, 'playerAction', 'RAISE', 200);
-  await act(h, c, 2, 'playerAction', 'CALL');
-  check(player(h, 2).chips === 0 && player(h, 2).handBets === 600, 'Zuzka topped up €1.50 and called €2');
+// Leaving for good: settle with the table, the others play on.
+async function cashOut() {
+  console.log('• a player who leaves settles with the table; money in a carried pot is lost');
+  const h = await startServer(SLOW_TURNS);
+  let bots = await seatBots(h, 3, false);
+  const [a, b, c] = bots;
+  const names = () => h.state().players.map(p => p.name).join(',');
+
+  // No pot: C (−€3) pays A (+€5).
+  setScores(h, { 0: [500, 0], 1: [-200, 0], 2: [-300, 0] });
+  await sleep(40);
+  const preview = c.view!.cashOut!;
+  check(preview.payments.length === 1 && preview.payments[0].name === 'Bot0' && preview.payments[0].amount === 300 && preview.lost === 0,
+    `preview: C pays A €3 (${JSON.stringify(preview)})`);
+  c.emit('cashOut');
+  await waitFor(() => !h.state().players.some(p => p.name === 'Bot2'), 500, 'C left');
+  check(player(h, 0).balance === 200 && player(h, 1).balance === -200, 'A is now +€2, B still −€2');
+  check(h.state().departed.length === 0, 'C is off the books');
+
+  // A winner cashing out is paid by the biggest losers first.
+  const d = new Bot(h.url, 'Bot3', false);
+  const e = new Bot(h.url, 'Bot4', false);
+  await d.connect();
+  await e.connect();
+  d.emit('joinGame', 'Bot3', 3);
+  e.emit('joinGame', 'Bot4', 4);
+  await waitFor(() => h.state().players.length === 4, 500, 'D and E seated');
+  bots = [a, b, d, e];
+  setScores(h, { 0: [900, 0], 1: [-200, 0], 3: [-500, 0], 4: [-200, 0] });
+  a.emit('cashOut');
+  await waitFor(() => !h.state().players.some(p => p.name === 'Bot0'), 500, 'A left');
+  check(player(h, 3).balance === 0 && player(h, 1).balance === 0 && player(h, 4).balance === 0,
+    `D, B and E paid A (scores ${h.state().players.map(p => p.balance).join(',')})`);
+  check(h.state().hostId === player(h, 1).id, 'B is the host now');
+
+  // A carried pot: E (−€3 before the pot, €1.50 in it) settles the €3 and hands the €1.50 to the host.
+  setScores(h, { 1: [500, 100], 3: [-200, 100], 4: [-300, 150] });
+  await sleep(40);
+  const carried = e.view!.cashOut!;
+  check(carried.lost === 150 && carried.holder === 'Bot1' && carried.payments.length === 1 && carried.payments[0].amount === 450,
+    `preview: pays B €3 + €1.50 for the pot (${JSON.stringify(carried)})`);
+  e.emit('cashOut');
+  await waitFor(() => !h.state().players.some(p => p.name === 'Bot4'), 500, 'E left');
+  const host = player(h, 1);
+  check(h.state().pot === 350 && host.balance === 400 - 450 && host.potShare === 250,
+    `the pot stays €3.50, B holds E's €1.50 (B ${host.balance}/${host.potShare})`);
+  check(h.state().departed.length === 0, `still nobody unsettled (${names()})`);
+
+  // Leaving without settling keeps the score on the list.
+  d.emit('leaveGame');
+  await waitFor(() => h.state().departed.length === 1, 500, 'D on the left list');
+  check(h.state().departed[0].balance === -300, 'D is listed at −€3');
+
+  [...bots, c].forEach(x => x.disconnect());
+  await h.close();
+}
+
+async function hostSettings() {
+  console.log('• only the host changes table settings, between hands, to the offered values');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 3, false);
+  const [a, b, c] = bots;
+  const s = () => h.state().settings;
+  check(h.state().hostId === player(h, 0).id, 'the first player to sit down is the host');
+
+  b.emit('updateSettings', { turnSeconds: 30, ante: 100, raiseSteps: [100, 200, 500] });
+  await sleep(40);
+  check(s().ante === 50 && s().turnSeconds === 15, 'a non-host cannot change settings');
+
+  a.emit('updateSettings', { turnSeconds: 31, ante: 100, raiseSteps: [100, 200, 500] });
+  a.emit('updateSettings', { turnSeconds: 30, ante: 70, raiseSteps: [100, 200, 500] });
+  a.emit('updateSettings', { turnSeconds: 30, ante: 100, raiseSteps: [100, 200, 300] });
+  await sleep(40);
+  check(s().ante === 50 && s().turnSeconds === 15, 'values outside the offered options are refused');
+
+  a.emit('updateSettings', { turnSeconds: 30, ante: 100, raiseSteps: [100, 200, 500] });
+  await waitFor(() => s().ante === 100, 500, 'host settings applied');
+  check(s().turnSeconds === 30 && s().raiseSteps.join() === '100,200,500', 'the host changed timer, ante and raises');
+
+  await deal(h, bots, 0);
+  check(h.state().pot === 300, `the next hand uses the new ante (pot ${h.state().pot})`);
+  a.emit('updateSettings', { turnSeconds: 15, ante: 50, raiseSteps: [50, 100, 200] });
+  await sleep(40);
+  check(s().ante === 100, 'settings cannot change during a hand');
+  await refused(h, b, 'a raise step from the old settings', 'playerAction', 'RAISE', 50);
+  await act(h, b, 1, 'playerAction', 'RAISE', 500);
+  check(h.state().currentBet === 500, 'a raise step from the new settings is accepted');
+
+  a.emit('leaveGame');
+  await waitFor(() => h.state().hostId === player(h, 1)?.id, 1000, 'host passes on');
+  check(h.state().hostId === player(h, 1).id, 'when the host leaves, the longest-seated player takes over');
   bots.forEach(x => x.disconnect());
-  void a;
+  void c;
   await h.close();
 }
 
@@ -317,7 +394,8 @@ async function bankerTopsUp() {
   await foldOutMustProve(true);
   await mustBeatTiedScore(29);
   await mustBeatTiedScore(30);
-  await bankerTopsUp();
+  await cashOut();
+  await hostSettings();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   if (failureCount()) {

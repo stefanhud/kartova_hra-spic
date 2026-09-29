@@ -1,5 +1,33 @@
 // server/src/game/GameState.ts
-import { Card } from './types';
+import { Card, HandCode } from './types';
+
+// Everything the table "says" is sent as a message key + parameters; the phone turns it
+// into English or Slovak. Money parameters are euro cents.
+export type MsgParam = string | number | boolean | string[] | HandCode | { name: string; amount: number }[] | undefined;
+export interface Msg {
+  key: string;
+  p?: Record<string, MsgParam>;
+}
+
+// Short tag shown on a seat after acting ("Call €2", "Swap"…).
+export interface ActionTag {
+  k: 'check' | 'call' | 'raise' | 'swap' | 'pass' | 'took' | 'fold' | 'bicykel';
+  a?: number;
+}
+
+export interface Settings {
+  turnSeconds: number;
+  ante: number;          // cents
+  raiseSteps: number[];  // cents
+}
+
+export const SETTING_OPTIONS = {
+  turnSeconds: [10, 15, 20, 30, 45, 60],
+  ante: [20, 50, 100],
+  raiseSteps: [[20, 50, 100], [50, 100, 200], [100, 200, 500]],
+};
+
+export const DEFAULT_SETTINGS: Settings = { turnSeconds: 15, ante: 50, raiseSteps: [50, 100, 200] };
 
 export type Phase = 'WAITING' | 'DEALER_CHOICE' | 'BETTING_1' | 'BETTING_2' | 'DEALER_SPECIAL' | 'TALON_SWAP' | 'SHOWDOWN';
 
@@ -7,8 +35,8 @@ export interface Player {
   id: string;             // Public id (random). Never the socket id or the secret session token.
   name: string;
   seatIndex: number;      // 0-5 (max 6 players)
-  chips: number;           // Euro cents
-  bought: number;          // Everything taken from the wallet: buy-in + top-ups (cents); balance = chips - bought
+  balance: number;        // Running score for the evening (cents): everyone sits down at 0, can go negative
+  potShare: number;       // Paid into the current pot since it was last won (cents); lost when leaving
   hand: Card[];
   isFolded: boolean;      // Also true while sitting out a round
   bet: number;            // Bet in the current betting round (cents)
@@ -20,22 +48,30 @@ export interface Player {
   score?: number;
   hasLooked?: boolean;    // Banker only: peeked at their cards, forfeiting the blind talon privilege
   hasActed?: boolean;     // Acted since the last raise in the current betting round
-  sittingOut?: boolean;   // Not dealt into the current round (joined late, offline or out of chips)
+  sittingOut?: boolean;   // Not dealt into the current round (joined late or offline)
   connected: boolean;
-  lastAction?: string;    // Short label shown next to the seat ("Call €2", "Fold", "Swap"…)
-  handDesc?: string;      // Only filled in client views, for hands the viewer may see
+  lastAction?: ActionTag; // Short tag shown next to the seat
+  handDesc?: HandCode;    // Only filled in client views, for hands the viewer may see
 }
 
-export interface LogEntry {
+// Settling up with the table when leaving for good. amount > 0: the leaver pays that player,
+// amount < 0: that player pays the leaver. `lost` is the leaver's money in the current pot:
+// it stays in the pot and is handed to `holder` (the host), who keeps it for the pot.
+export interface CashOut {
+  payments: { name: string; amount: number }[];
+  lost: number;
+  holder: string | null;
+}
+
+export interface LogEntry extends Msg {
   id: number;
-  text: string;
 }
 
 export interface RoundResult {
   winnerIds: string[];    // Empty when the pot stays on the table
   amount: number;         // Pot won, or pot carried over
-  headline: string;
-  detail: string;
+  headline: Msg;
+  detail: Msg[];          // Shown joined with " · "
 }
 
 export interface SwapOption {
@@ -67,6 +103,8 @@ export interface GameState {
   spicTie: boolean;       // The carried pot was tied on Špic: the first Špic takes it
   carryTotal: number;     // Sum of what the finishers paid in every tied hand since the pot was last won
   departed: { name: string; balance: number }[]; // Balances of players who left, for settling up
+  hostId: string | null;  // First player to sit down; may change the table settings
+  settings: Settings;
   roundId: number;
   result: RoundResult | null;
 }
@@ -77,13 +115,13 @@ export interface ClientView extends GameState {
   serverNow: number;      // Lets the client correct its clock for the turn timer
   swapOptions: SwapOption[];
   canRaise: boolean;      // Viewer may raise right now
+  cashOut: CashOut | null; // What the viewer would pay/get if they settled and left now
   config: {
     ante: number;
     raiseSteps: number[];
+    turnSeconds: number;
+    options: typeof SETTING_OPTIONS;
     maxRaises: number;
-    minBuyIn: number;
-    maxBuyIn: number;
-    defaultBuyIn: number;
     seats: number;
   };
 }
@@ -98,7 +136,7 @@ export function createInitialState(): GameState {
     dealerIndex: 0,
     currentBet: 0,
     talon: [],
-    log: [{ id: 1, text: 'Table open. Waiting for players…' }],
+    log: [{ id: 1, key: 'tableOpen' }],
     minScoreToBeat: 0,
     swappedPlayers: [],
     gameWinner: null,
@@ -112,6 +150,8 @@ export function createInitialState(): GameState {
     spicTie: false,
     carryTotal: 0,
     departed: [],
+    hostId: null,
+    settings: { ...DEFAULT_SETTINGS },
     roundId: 0,
     result: null,
   };

@@ -17,8 +17,15 @@ export enum HandType {
   BICYKEL = 'BICYKEL'        // 3 different suits (Dead hand)
 }
 
+// Language-neutral hand name: the client turns it into "Flush 29" / "Farba 29".
+export interface HandCode {
+  k: 'zlaty' | 'spic' | 'trojica' | 'flush' | 'none' | 'bicykel' | 'partial';
+  v?: number | string;
+}
+
 export interface HandResult {
   score: number;
   type: HandType;
-  description: string; // e.g., "Trojica (Kings)"
+  description: string; // e.g., "Trojica K" (English, for logs and debugging)
+  code: HandCode;
 }

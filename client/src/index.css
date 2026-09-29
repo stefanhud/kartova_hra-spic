@@ -591,12 +591,6 @@ input:focus-visible {
   white-space: nowrap;
 }
 
-.seat__score {
-  font-size: 10.5px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
 .is-up {
   color: var(--green);
 }
@@ -1766,6 +1760,51 @@ button.card {
 
 .settle__arrow {
   color: var(--muted);
+}
+
+.settings {
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.settings .field {
+  margin-top: 6px;
+}
+
+.settings .chip-pick {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.settings .chip-pick:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.settings .chip-pick.is-on:disabled {
+  opacity: 0.85;
+}
+
+.settings .btn {
+  margin-top: 10px;
+}
+
+.cashout__score {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 4px 0 2px;
+  font-weight: 700;
+}
+
+.cashout__score b {
+  font-size: 24px;
+}
+
+.cashout .btn {
+  margin-top: 10px;
 }
 
 .settle__note {

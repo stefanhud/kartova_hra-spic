@@ -13,8 +13,8 @@ export interface Player {
   id: string;
   name: string;
   seatIndex: number;
-  chips: number;     // euro cents (all money is in cents)
-  bought: number;    // buy-in + top-ups; running score = chips - bought
+  balance: number;   // running score for the evening in euro cents (everyone starts at 0)
+  potShare: number;  // paid into the current pot (lost if you leave before it's won)
   hand: Card[];
   isFolded: boolean;
   bet: number;
@@ -28,20 +28,49 @@ export interface Player {
   hasActed?: boolean;
   sittingOut?: boolean;
   connected: boolean;
-  lastAction?: string;
-  handDesc?: string;
+  lastAction?: ActionTag;
+  handDesc?: HandCode;
 }
 
-export interface LogEntry {
+// Language-neutral messages: the client turns them into English or Slovak (see i18n.ts).
+export interface HandCode {
+  k: 'zlaty' | 'spic' | 'trojica' | 'flush' | 'none' | 'bicykel' | 'partial';
+  v?: number | string;
+}
+
+export interface ActionTag {
+  k: 'check' | 'call' | 'raise' | 'swap' | 'pass' | 'took' | 'fold' | 'bicykel';
+  a?: number;
+}
+
+export interface Msg {
+  key: string;
+  p?: Record<string, unknown>;
+}
+
+export interface LogEntry extends Msg {
   id: number;
-  text: string;
 }
 
 export interface RoundResult {
   winnerIds: string[];
   amount: number;
-  headline: string;
-  detail: string;
+  headline: Msg;
+  detail: Msg[];
+}
+
+// Settling up when leaving: amount > 0 you pay that player, < 0 they pay you.
+// `lost` is your money in the current pot, handed to `holder` who keeps it for the pot.
+export interface CashOut {
+  payments: { name: string; amount: number }[];
+  lost: number;
+  holder: string | null;
+}
+
+export interface Settings {
+  turnSeconds: number;
+  ante: number;
+  raiseSteps: number[];
 }
 
 export interface SwapOption {
@@ -73,19 +102,20 @@ export interface GameView {
   spicTie: boolean;
   carryTotal: number;
   departed: { name: string; balance: number }[];
+  hostId: string | null;
   roundId: number;
   result: RoundResult | null;
   you: string | null;
   serverNow: number;
   swapOptions: SwapOption[];
   canRaise: boolean;
+  cashOut: CashOut | null;
   config: {
     ante: number;
     raiseSteps: number[];
+    turnSeconds: number;
+    options: { turnSeconds: number[]; ante: number[]; raiseSteps: number[][] };
     maxRaises: number;
-    minBuyIn: number;
-    maxBuyIn: number;
-    defaultBuyIn: number;
     seats: number;
   };
 }

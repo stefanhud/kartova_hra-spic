@@ -14,6 +14,7 @@ export interface Player {
   name: string;
   seatIndex: number;
   chips: number;     // euro cents (all money is in cents)
+  bought: number;    // buy-in + top-ups; running score = chips - bought
   hand: Card[];
   isFolded: boolean;
   bet: number;
@@ -71,6 +72,7 @@ export interface GameView {
   lastRaiserId: string | null;
   spicTie: boolean;
   carryTotal: number;
+  departed: { name: string; balance: number }[];
   roundId: number;
   result: RoundResult | null;
   you: string | null;

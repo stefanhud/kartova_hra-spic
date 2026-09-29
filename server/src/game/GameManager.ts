@@ -35,7 +35,7 @@ export const DEFAULT_TIMINGS: Timings = {
   noSwap: 1700,
   survivorDelay: 1000,
   showdown: 6000,
-  reconnectGrace: 120000,
+  reconnectGrace: 300000,
 };
 
 const HIDDEN_CARD = { suit: 'X', rank: 'X', value: 0 } as unknown as Card;
@@ -185,6 +185,7 @@ export class GameManager {
       name,
       seatIndex,
       chips: this.clampBuyIn(rawBuyIn),
+      bought: 0,
       hand: [],
       isFolded: inRound,
       sittingOut: inRound,
@@ -195,6 +196,7 @@ export class GameManager {
       score: 0,
       connected: true,
     };
+    player.bought = player.chips;
     this.state.players.push(player);
     this.tokenPlayer.set(token, player.id);
     this.playerToken.set(player.id, token);
@@ -207,6 +209,7 @@ export class GameManager {
     const dealtIn = this.isInRound() && this.state.phase !== 'DEALER_CHOICE' && !player.sittingOut;
     if (dealtIn) return this.error(socket, 'You can rebuy after this hand.');
     player.chips = this.clampBuyIn(rawAmount);
+    player.bought += player.chips;
     this.log(`${player.name} rebought for ${euro(player.chips)}.`);
   }
 
@@ -231,6 +234,8 @@ export class GameManager {
     if (token) this.tokenPlayer.delete(token);
     this.playerToken.delete(playerId);
     s.players = s.players.filter(p => p.id !== playerId);
+    // Their result for the evening stays on record for settling up.
+    if (player.chips !== player.bought) s.departed.push({ name: player.name, balance: player.chips - player.bought });
 
     const verb = reason === 'timeout' ? 'was removed after losing connection' : 'left the table';
     this.log(`${player.name} ${verb}${wasActive ? ' and folds' : ''}.`);
@@ -264,7 +269,7 @@ export class GameManager {
     this.state.log = log;
     this.state.roundId = roundId;
     this.firstRound = true;
-    this.log('Table is empty — pot cleared.');
+    this.log('Table is empty — pot and scores cleared.');
   }
 
   // ---------------------------------------------------------------------------
@@ -273,7 +278,7 @@ export class GameManager {
 
   // Can be dealt into the next hand.
   private isEligible(p: Player) {
-    return p.connected && p.chips > 0 && !p.benched;
+    return p.connected && !p.benched;
   }
 
   private handleStart(socket: Socket, requester: Player | undefined) {
@@ -287,7 +292,7 @@ export class GameManager {
       this.log('Too few players — everyone who skipped is back in.');
       eligible = s.players.filter(p => this.isEligible(p));
     }
-    if (eligible.length < 2) return this.error(socket, 'Need at least 2 players with chips to deal.');
+    if (eligible.length < 2) return this.error(socket, 'Need at least 2 players to deal.');
 
     // Banker rotates every round; random pick only on the very first round.
     let candidate: Player | undefined;
@@ -312,12 +317,8 @@ export class GameManager {
     const others = s.players.filter(p => p !== candidate && this.isEligible(p));
     if (others.length < 2) {
       // Skipping would leave nobody to play against, so they have to deal.
-      if (candidate.chips >= candidate.debt + ANTE) {
-        const paid = this.payDebt(candidate);
-        this.log(`${candidate.name} must deal (too few players to skip) and pays ${euro(paid)} owed.`);
-      } else {
-        this.log(`${candidate.name} must deal (too few players to skip); the ${euro(candidate.debt)} owed stays open.`);
-      }
+      const paid = this.payDebt(candidate);
+      this.log(`${candidate.name} must deal (too few players to skip) and pays ${euro(paid)} owed.`);
       this.dealHand(candidate);
       return;
     }
@@ -333,9 +334,6 @@ export class GameManager {
     const s = this.state;
     if (!player || s.phase !== 'DEALER_CHOICE' || s.turnIndex !== player.seatIndex) return;
     if (action === 'PAY') {
-      if (player.chips < player.debt + ANTE) {
-        return this.error(socket, `You need ${euro(player.debt + ANTE)} (what you owe plus the ante) to deal.`);
-      }
       const paid = this.payDebt(player);
       this.log(`${player.name} pays ${euro(paid)} owed and deals.`);
       this.dealHand(player);
@@ -365,8 +363,18 @@ export class GameManager {
     if (next) this.offerDeal(next);
   }
 
+  // Take the missing money from the player's wallet so their chips cover `needed`.
+  private topUp(p: Player, needed: number) {
+    const missing = needed - p.chips;
+    if (missing <= 0) return;
+    p.chips += missing;
+    p.bought += missing;
+    this.log(`${p.name} tops up ${euro(missing)}.`);
+  }
+
   private payDebt(p: Player) {
     const paid = p.debt;
+    this.topUp(p, paid);
     p.chips -= paid;
     this.state.pot += paid;
     p.debt = 0;
@@ -411,9 +419,9 @@ export class GameManager {
       p.isFolded = false;
       p.sittingOut = false;
 
-      const ante = Math.min(p.chips, ANTE); // Can't go negative
-      p.chips -= ante;
-      s.pot += ante;
+      this.topUp(p, ANTE);
+      p.chips -= ANTE;
+      s.pot += ANTE;
 
       const c1 = this.deck.draw();
       const c2 = this.deck.draw();
@@ -465,10 +473,9 @@ export class GameManager {
   }
 
   // A player still owes a decision if they haven't acted since the last raise or
-  // haven't matched the current bet. Players with no chips left are all-in and skipped
-  // (unless they still have to decide about a debt).
+  // haven't matched the current bet. Nobody is ever all-in: short stacks top up.
   private needsToAct(p: Player) {
-    return !p.isFolded && (p.chips > 0 || this.debtDue(p)) && (!p.hasActed || p.bet < this.state.currentBet);
+    return !p.isFolded && (!p.hasActed || p.bet < this.state.currentBet);
   }
 
   private promptNextBettor(fromSeat: number) {
@@ -545,7 +552,7 @@ export class GameManager {
     }
 
     if (rawAction === 'CALL') {
-      if (due > player.chips) return this.error(socket, `You owe ${euro(due)} but have only ${euro(player.chips)} — you can only fold.`);
+      this.topUp(player, due + (s.currentBet - player.bet));
       const paidDebt = due ? this.payDebt(player) : 0;
       this.applyCall(player, { paidDebt });
       return;
@@ -559,9 +566,7 @@ export class GameManager {
       }
       const raiseTo = s.currentBet + step;
       const cost = raiseTo - player.bet;
-      if (cost + due > player.chips) {
-        return this.error(socket, `You need ${euro(cost + due)} to raise to ${euro(raiseTo)}${due ? ` (incl. ${euro(due)} owed)` : ''}.`);
-      }
+      this.topUp(player, cost + due);
 
       const paidDebt = due ? this.payDebt(player) : 0;
       player.chips -= cost;
@@ -572,7 +577,7 @@ export class GameManager {
       s.raisesThisRound++;
       s.lastRaiserId = player.id;
       player.hasActed = true;
-      player.lastAction = player.chips === 0 ? `All-in ${euro(raiseTo)}` : `Raise ${euro(raiseTo)}`;
+      player.lastAction = `Raise ${euro(raiseTo)}`;
       // Everyone else has to respond to the raise.
       for (const p of s.players) if (p !== player && !p.isFolded) p.hasActed = false;
       const verb = s.raisesThisRound > 1 ? 're-raised' : 'raised';
@@ -592,22 +597,19 @@ export class GameManager {
   private applyCall(player: Player, opts: { banker?: boolean; timedOut?: boolean; paidDebt?: number } = {}) {
     const s = this.state;
     const owed = s.currentBet - player.bet;
-    const pay = Math.min(player.chips, owed);
+    this.topUp(player, owed); // the banker (or anyone short) takes it from the wallet
+    const pay = owed;
     player.chips -= pay;
     player.bet += pay;
     player.handBets += pay;
     s.pot += pay;
     player.hasActed = true;
 
-    let label: string;
-    if (owed === 0) label = 'Check';
-    else if (player.chips === 0) label = pay < owed ? `All-in ${euro(player.bet)}` : 'All-in';
-    else label = `Call ${euro(pay)}`;
-    player.lastAction = label;
+    player.lastAction = owed === 0 ? 'Check' : `Call ${euro(pay)}`;
 
     const who = opts.banker ? `${player.name} (banker)` : player.name;
     const prefix = opts.timedOut ? `${player.name} ran out of time — ` : `${who} `;
-    const verb = owed === 0 ? 'checks' : pay < owed || player.chips === 0 ? `goes all-in (${euro(pay)})` : `calls ${euro(pay)}`;
+    const verb = owed === 0 ? 'checks' : `calls ${euro(pay)}`;
     const debt = opts.paidDebt ? ` and pays ${euro(opts.paidDebt)} owed` : '';
     this.log(`${prefix}${verb}${debt}.`);
     this.promptNextBettor(player.seatIndex);

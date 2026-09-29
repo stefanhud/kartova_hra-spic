@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { Phase, Player } from '../types';
 import { isHidden } from '../types';
-import { euro } from '../money';
+import { balanceLabel, euro } from '../money';
 import { PlayingCard } from './PlayingCard';
 import { TimerRing } from './TimerRing';
 
@@ -79,6 +79,9 @@ export function Seat({ player: p, pos, isMe, isDealer, isTurn, timer, phase, isW
             <div className="seat__bet"><span className="bet__chip" />{euro(p.bet)}</div>
           )}
           {p.debt > 0 && !p.benched && <div className="seat__debt">owes {euro(p.debt)}</div>}
+          {p.chips !== p.bought && (
+            <div className={`seat__score ${p.chips > p.bought ? 'is-up' : 'is-down'}`}>{balanceLabel(p.chips - p.bought)}</div>
+          )}
         </div>
         {bubble && <div className="seat__bubble" key={bubble}>{bubble}</div>}
       </div>

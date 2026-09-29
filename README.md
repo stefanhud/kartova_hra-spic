@@ -24,7 +24,9 @@
 - Countdown ring on the active player, vibration and a tab-title alert when it's your turn
 - Reconnects without losing your seat: reload the page, switch apps or change networks mid-hand and you keep your seat, chips and cards
 - The screen stays awake while you're seated, and the game can be added to your home screen as an app
-- Pub stakes: €0.50 ante, raises of €0.50 / €1 / €2, and a €5–€50 buy-in with a rebuy button when you run out of chips
+- Pub stakes: €0.50 ante, raises of €0.50 / €1 / €2, and a €5–€50 buy-in
+- A "wallet" instead of going all-in: short of chips, you **top up & call** (the banker tops up automatically)
+- Running score on every seat (+/−) and a **Settle up** screen that turns the evening into the fewest possible payments
 - The carried-over pot is tracked for you: who owes what to play on, and who has to beat which score
 - Docker and Docker Compose deployment
 
@@ -46,6 +48,13 @@ Tap **?** in the top bar for the rules, and the log icon (or the ticker) for the
 - **A banker who owes:** before the deal they choose **Pay & deal** or **Skip**. Skipping means sitting out until the pot is won, and the deal passes to the next player who owes nothing.
 - When someone finally wins the pot, all debts are cleared and everyone is back in.
 
+### Wallet and settling up
+
+- Nobody goes all-in. If your chips don't cover a call, raise, ante or debt, the button says **top up €X** and the missing money comes from your wallet. The banker, who calls automatically, tops up automatically.
+- Each seat shows its **running score** for the evening: chips minus everything that player brought or topped up.
+- **Settle up** (the € button) lists everyone's score, including players who already left, and the payments that square everything up (biggest loser pays the biggest winner first). Settle once the pot has been won.
+- Scores live in the server's memory: restarting or updating the container resets them, so settle up first.
+
 ### Hand scoring
 
 Hands are scored from three cards (A = 11, K/Q/J/10 = 10, 9/8/7 = face value):
@@ -59,7 +68,7 @@ Hands are scored from three cards (A = 11, K/Q/J/10 = 10, 9/8/7 = face value):
 ### Timers and connections
 
 - The turn clock is 15 seconds. If a player runs out of time, the server checks when that is free and folds otherwise (it never spends money for you), passes during the swap phase, and skips the deal for a banker who owes.
-- A player whose connection drops keeps their seat for 2 minutes. While they are offline their turns run on a 5-second clock, and they are not dealt into new hands. If they don't come back, they are removed and fold any hand in progress.
+- The screen stays awake while you're seated. If a phone still drops its connection, the player keeps their seat for 5 minutes. While they are offline their turns run on a 5-second clock, and they are not dealt into new hands. If they don't come back, they are removed and fold any hand in progress.
 - Players who sit down during a hand wait for the next deal; players with no chips sit out until they rebuy.
 
 ## Run locally

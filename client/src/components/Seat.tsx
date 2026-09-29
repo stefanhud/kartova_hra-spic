@@ -34,9 +34,9 @@ function badgeFor(p: Player, phase: Phase, isWinner: boolean): { text: string; t
   if (!p.connected) return { text: 'Offline', tone: 'amber' };
   if (p.specialStatus === 'BICYKEL') return { text: 'Bicykel', tone: 'red' };
   if (p.benched) return { text: 'Out till win', tone: 'muted' };
-  if (handLive && p.sittingOut) return { text: p.chips === 0 ? 'Busted' : 'Next hand', tone: 'muted' };
+  if (handLive && p.sittingOut) return { text: 'Next hand', tone: 'muted' };
   if (handLive && p.isFolded) return { text: 'Folded', tone: 'muted' };
-  if (p.chips === 0) return { text: handLive ? 'All-in' : 'Busted', tone: handLive ? 'purple' : 'muted' };
+  // No "all-in" / "busted": €0 chips just means the next payment comes from the wallet.
   return null;
 }
 

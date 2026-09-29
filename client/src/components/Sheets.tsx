@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { LogEntry } from '../types';
-import { euro } from '../money';
+import type { GameView, LogEntry } from '../types';
+import { balanceLabel, euro, settle } from '../money';
 
 interface SitProps {
   seat: number;
@@ -117,7 +117,57 @@ export function RulesSheet({ onClose }: { onClose: () => void }) {
           </ul>
           <p>You need a Flush or Trojica to take the pot, even if everyone else folds.</p>
           <p><b>Ties:</b> the pot stays. The next winner must beat the tied score — after a tie on Špic, the first Špic takes it. Two Špics in one hand are a tie.</p>
+          <p><b>Wallet:</b> short of chips? Tap <b>Top up &amp; call</b> (or raise) and the missing money comes from your wallet — the banker tops up automatically. Your running score (+/−) is under your chips, and <b>Settle up</b> (€ button) shows who pays whom at the end of the night.</p>
           <p><b>Playing on for a carried pot:</b> whoever didn't play the tied hand to the end owes what the finishers paid (minus what they put in themselves). You pay it at your first decision of the next hand, or fold. A banker who owes can pay and deal, or skip and sit out until the pot is won.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SettleSheet({ view, onClose }: { view: GameView; onClose: () => void }) {
+  const rows = [
+    ...view.players.map(p => ({ name: p.name, balance: p.chips - p.bought, left: false })),
+    ...view.departed.map(d => ({ name: d.name, balance: d.balance, left: true })),
+  ].sort((a, b) => b.balance - a.balance);
+  const payments = settle(rows.map(r => ({ name: r.left ? `${r.name} (left)` : r.name, balance: r.balance })));
+
+  return (
+    <div className="overlay overlay--bottom" onClick={onClose}>
+      <div className="sheet sheet--log" onClick={e => e.stopPropagation()} role="dialog" aria-label="Settle up">
+        <div className="sheet__grab" aria-hidden="true" />
+        <div className="sheet__head">
+          <div className="sheet__title">Settle up</div>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="settle">
+          {view.pot > 0 && (
+            <p className="settle__note">{euro(view.pot)} is still in the pot — play until someone wins it before settling.</p>
+          )}
+          <div className="settle__label">Tonight's scores</div>
+          <ul className="settle__list">
+            {rows.map((r, i) => (
+              <li key={i}>
+                <span>{r.name}{r.left && <em> · left</em>}</span>
+                <b className={r.balance > 0 ? 'is-up' : r.balance < 0 ? 'is-down' : ''}>{balanceLabel(r.balance)}</b>
+              </li>
+            ))}
+          </ul>
+          <div className="settle__label">Payments</div>
+          {view.pot > 0 ? (
+            <p className="settle__note">Payments appear once the pot has been won.</p>
+          ) : payments.length ? (
+            <ul className="settle__list">
+              {payments.map((p, i) => (
+                <li key={i}>
+                  <span>{p.from} <span className="settle__arrow">→</span> {p.to}</span>
+                  <b>{euro(p.amount)}</b>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="settle__note">Nobody owes anybody anything.</p>
+          )}
         </div>
       </div>
     </div>

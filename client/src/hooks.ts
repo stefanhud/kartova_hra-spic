@@ -33,28 +33,43 @@ export function useElementSize(ref: RefObject<HTMLElement | null>) {
 }
 
 // Keep the phone screen awake while seated, so the connection isn't suspended mid-hand.
+// Some phones (iOS Safari especially) only grant the lock after a tap and drop it whenever
+// the page is hidden, so it is re-requested on every return to the page and on taps.
+type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener?: (type: 'release', cb: () => void) => void };
+
 export function useWakeLock(active: boolean) {
   useEffect(() => {
-    const nav = navigator as Navigator & {
-      wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> };
-    };
+    const nav = navigator as Navigator & { wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> } };
     if (!active || !nav.wakeLock) return;
-    let lock: { release: () => Promise<void> } | null = null;
+    let lock: WakeLockSentinelLike | null = null;
+    let pending = false;
     let cancelled = false;
     const acquire = () => {
-      if (document.visibilityState !== 'visible') return;
+      if (cancelled || lock || pending || document.visibilityState !== 'visible') return;
+      pending = true;
       nav.wakeLock!.request('screen')
         .then(l => {
-          if (cancelled) l.release().catch(() => {});
-          else lock = l;
+          pending = false;
+          if (cancelled) {
+            l.release().catch(() => {});
+            return;
+          }
+          lock = l;
+          l.addEventListener?.('release', () => {
+            lock = null;
+          });
         })
-        .catch(() => {});
+        .catch(() => {
+          pending = false;
+        });
     };
     acquire();
     document.addEventListener('visibilitychange', acquire);
+    window.addEventListener('pointerdown', acquire, true);
     return () => {
       cancelled = true;
       document.removeEventListener('visibilitychange', acquire);
+      window.removeEventListener('pointerdown', acquire, true);
       lock?.release().catch(() => {});
     };
   }, [active]);

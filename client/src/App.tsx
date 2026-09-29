@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dock, type DockActions } from './components/Dock';
-import { LogSheet, RulesSheet, SitSheet } from './components/Sheets';
+import { LogSheet, RulesSheet, SettleSheet, SitSheet } from './components/Sheets';
 import { Table, type SwapSelection } from './components/Table';
 import { useWakeLock } from './hooks';
 import { euro } from './money';
@@ -11,8 +11,9 @@ import { isBetting } from './types';
 type Toast = { id: number; text: string; tone: 'error' | 'info' };
 const NO_SELECTION: SwapSelection = { nonce: -1, hand: null, talon: null };
 
-function Icon({ name }: { name: 'log' | 'help' | 'leave' }) {
+function Icon({ name }: { name: 'log' | 'help' | 'leave' | 'settle' }) {
   const paths = {
+    settle: 'M17 7.5A6 6 0 1 0 17 16.5M4 10.5h9M4 13.5h9',
     log: 'M4 6h16M4 12h16M4 18h10',
     help: 'M9.1 9a3 3 0 1 1 4.2 2.7c-.8.4-1.3 1.1-1.3 2V14M12 17.5v.01',
     leave: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11',
@@ -32,7 +33,7 @@ export default function App() {
   const [replaced, setReplaced] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
-  const [sheet, setSheet] = useState<'log' | 'rules' | null>(null);
+  const [sheet, setSheet] = useState<'log' | 'rules' | 'settle' | null>(null);
   const [selection, setSelection] = useState<SwapSelection>(NO_SELECTION);
   const [prefs, setPrefs] = useState(loadPrefs);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -132,7 +133,6 @@ export default function App() {
     dealerSpecial: action => socket.emit('dealerSpecial', action),
     dealerChoice: action => socket.emit('dealerChoice', action),
     deal: () => socket.emit('startGame'),
-    rebuy: () => socket.emit('rebuy', buyIn),
     clearSelection,
     selectHand: i => select('hand', i),
   };
@@ -200,6 +200,7 @@ export default function App() {
         </button>
         <div className="topbar__actions">
           <button type="button" className="icon-btn" onClick={() => setSheet('rules')} aria-label="How to play"><Icon name="help" /></button>
+          <button type="button" className="icon-btn" onClick={() => setSheet('settle')} aria-label="Settle up"><Icon name="settle" /></button>
           <button type="button" className="icon-btn" onClick={() => setSheet('log')} aria-label="Table log"><Icon name="log" /></button>
           {me && <button type="button" className="icon-btn icon-btn--danger" onClick={leave} aria-label="Leave table"><Icon name="leave" /></button>}
         </div>
@@ -221,7 +222,6 @@ export default function App() {
         connected={connected}
         selection={selection}
         actions={actions}
-        rebuyAmount={buyIn}
       />
 
       {toast && <div className={`toast tone-${toast.tone}`} key={toast.id} role="alert">{toast.text}</div>}
@@ -240,6 +240,7 @@ export default function App() {
       )}
       {sheet === 'log' && <LogSheet log={view.log} onClose={() => setSheet(null)} />}
       {sheet === 'rules' && <RulesSheet onClose={() => setSheet(null)} />}
+      {sheet === 'settle' && <SettleSheet view={view} onClose={() => setSheet(null)} />}
 
       {replaced && (
         <div className="overlay">

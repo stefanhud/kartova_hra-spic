@@ -275,6 +275,37 @@ async function mustBeatTiedScore(score: 29 | 30) {
   await h.close();
 }
 
+// A banker with €1 left keeps calling raises: the missing money comes from their wallet.
+async function bankerTopsUp() {
+  console.log('• a banker who runs out of chips tops up from the wallet and keeps calling');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 3, false, 500); // €5 each
+  const [a, b, c] = bots;
+  await deal(h, bots, 0, ['H7', 'H8', 'S7', 'S8', 'D7', 'D8', 'H9', 'S9', 'D9', 'HA', 'SA', 'DK', 'CK']);
+  // The banker has just €1 left (move €3.50 of their chips into the pot to keep the books balanced).
+  player(h, 0).chips -= 350;
+  h.state().pot += 350;
+  await act(h, b, 1, 'playerAction', 'RAISE', 200);
+  await act(h, c, 2, 'playerAction', 'RAISE', 200);
+  await act(h, b, 1, 'playerAction', 'CALL');
+  await waitFor(() => h.state().phase === 'BETTING_2', 1000, 'second round');
+  const banker = player(h, 0);
+  check(banker.bet === 0 && banker.handBets === 400, `the banker paid the full €4 (paid ${banker.handBets})`);
+  check(banker.chips === 0 && banker.bought === 500 + 300, `€3 came from the wallet (bought ${banker.bought})`);
+  check(!banker.isFolded, 'the banker is still in the hand');
+
+  // A normal player short of chips can top up and call too.
+  const zuzka = player(h, 2);
+  h.state().pot += zuzka.chips - 50; // Zuzka is down to €0.50
+  zuzka.chips = 50;
+  await act(h, b, 1, 'playerAction', 'RAISE', 200);
+  await act(h, c, 2, 'playerAction', 'CALL');
+  check(player(h, 2).chips === 0 && player(h, 2).handBets === 600, 'Zuzka topped up €1.50 and called €2');
+  bots.forEach(x => x.disconnect());
+  void a;
+  await h.close();
+}
+
 (async () => {
   const started = Date.now();
   await tieChargesOutsiders();
@@ -286,6 +317,7 @@ async function mustBeatTiedScore(score: 29 | 30) {
   await foldOutMustProve(true);
   await mustBeatTiedScore(29);
   await mustBeatTiedScore(30);
+  await bankerTopsUp();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   if (failureCount()) {

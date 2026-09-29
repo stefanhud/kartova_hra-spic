@@ -8,6 +8,7 @@ export interface Player {
   name: string;
   seatIndex: number;      // 0-5 (max 6 players)
   chips: number;           // Euro cents
+  bought: number;          // Everything taken from the wallet: buy-in + top-ups (cents); balance = chips - bought
   hand: Card[];
   isFolded: boolean;      // Also true while sitting out a round
   bet: number;            // Bet in the current betting round (cents)
@@ -65,6 +66,7 @@ export interface GameState {
   lastRaiserId: string | null;
   spicTie: boolean;       // The carried pot was tied on Špic: the first Špic takes it
   carryTotal: number;     // Sum of what the finishers paid in every tied hand since the pot was last won
+  departed: { name: string; balance: number }[]; // Balances of players who left, for settling up
   roundId: number;
   result: RoundResult | null;
 }
@@ -109,6 +111,7 @@ export function createInitialState(): GameState {
     lastRaiserId: null,
     spicTie: false,
     carryTotal: 0,
+    departed: [],
     roundId: 0,
     result: null,
   };

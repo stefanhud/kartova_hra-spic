@@ -52,14 +52,14 @@ export interface Harness {
 // How often each rule/event came up across all tables (printed at the end).
 export const coverage: Record<string, number> = {};
 export const COVERAGE_PATTERNS: [string, RegExp][] = [
-  ['raise', /raised to/], ['re-raise', /re-raised to/], ['fold', /folded|— fold/], ['all-in', /all-in/],
+  ['raise', /raised to/], ['re-raise', /re-raised to/], ['fold', /folded|— fold/],
   ['timeout', /ran out of time/], ['banker look', /looked at their cards/], ['banker call', /\(banker\)/],
   ['bicykel fold', /Bicykel/], ["banker's option", /Banker's option/], ['banker takes talon', /takes the talon/],
   ['swap', /swapped/], ['pass', /passes\./], ['auto-pass', /can't improve/], ['win', /wins €/],
   ['pot stays', /pot stays|Pot stays/], ['escalation miss', /needed more than/], ['survivor proves hand', /prove a hand/],
   ['debt charged', /To play on/], ['debt paid', /owed/], ['dealer pays', /pays .* owed and deals/],
   ['dealer skips', /skips dealing/], ['disconnect', /lost connection/], ['reconnect', /is back/],
-  ['removed offline', /was removed/], ['rebuy', /rebought/], ['late join', /next hand/],
+  ['removed offline', /was removed/], ['top-up', /tops up/], ['late join', /next hand/],
 ];
 
 export async function startServer(timings: Timings = FAST): Promise<Harness> {
@@ -79,7 +79,7 @@ export async function startServer(timings: Timings = FAST): Promise<Harness> {
   let lastLogId = 0;
 
   // Methods that legitimately add or remove money from the table.
-  for (const m of ['handleJoin', 'handleRebuy', 'removePlayer', 'resetTable']) {
+  for (const m of ['handleJoin', 'handleRebuy', 'removePlayer', 'resetTable', 'topUp']) {
     const orig = anyGm[m].bind(gm);
     anyGm[m] = (...args: unknown[]) => {
       moneyChanging = true;
@@ -122,6 +122,11 @@ export async function startServer(timings: Timings = FAST): Promise<Harness> {
       check(raiser && s.raiserSeats.includes(raiser.seatIndex), `raise by a player who may not raise (${raiser?.name})`);
       check(raiser && raiser.seatIndex !== s.dealerIndex, 'the banker raised');
     }
+    // Zero-sum: every euro someone is up, someone else is down (or it's in the pot).
+    const balances = s.players.reduce((a, p) => a + p.chips - p.bought, 0) + s.departed.reduce((a, d) => a + d.balance, 0);
+    check(balances + s.pot === 0, `balances don't add up: players/departed ${balances} + pot ${s.pot}`);
+    check(s.players.every(p => p.chips >= 0 && p.bought >= p.chips - 1e9), 'bad wallet');
+
     // A won pot wipes every debt.
     if (s.phase === 'SHOWDOWN' && s.gameWinner) {
       check(s.players.every(p => p.debt === 0 && !p.benched) && s.carryTotal === 0, 'debts left after the pot was won');

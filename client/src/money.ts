@@ -9,3 +9,34 @@ export function euro(cents: number): string {
 export function stepLabel(cents: number): string {
   return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
 }
+
+// Running score: "+€6.50", "−€12", "±€0".
+export function balanceLabel(cents: number): string {
+  if (cents === 0) return '±€0';
+  return `${cents > 0 ? '+' : '−'}${euro(Math.abs(cents))}`;
+}
+
+export interface Payment {
+  from: string;
+  to: string;
+  amount: number;
+}
+
+// Turn balances into as few payments as possible: the biggest loser pays the biggest
+// winner first, and so on (never more than players - 1 payments).
+export function settle(balances: { name: string; balance: number }[]): Payment[] {
+  const losers = balances.filter(b => b.balance < 0).map(b => ({ ...b })).sort((a, b) => a.balance - b.balance);
+  const winners = balances.filter(b => b.balance > 0).map(b => ({ ...b })).sort((a, b) => b.balance - a.balance);
+  const payments: Payment[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < losers.length && j < winners.length) {
+    const amount = Math.min(-losers[i].balance, winners[j].balance);
+    if (amount > 0) payments.push({ from: losers[i].name, to: winners[j].name, amount });
+    losers[i].balance += amount;
+    winners[j].balance -= amount;
+    if (losers[i].balance === 0) i++;
+    if (winners[j].balance === 0) j++;
+  }
+  return payments;
+}

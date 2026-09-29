@@ -10,6 +10,7 @@
 <p align="center">
   <img src="docs/screenshots/phone-owes.jpg" width="220" alt="Paying what you owe at your first decision" />
   <img src="docs/screenshots/phone-banker-choice.jpg" width="220" alt="A banker who owes: pay and deal, or skip" />
+  <img src="docs/screenshots/phone-settle-up.jpg" width="220" alt="Settle up: tonight's scores and who pays whom" />
 </p>
 <p align="center">
   <img src="docs/screenshots/phone-landscape.jpg" width="560" alt="Landscape layout on a phone" />

@@ -29,13 +29,17 @@ interface Props {
   actions: DockActions;
 }
 
-// Same rule as the server: at least match the bar (Trojicas compare by rank, 888 > 777),
-// and while a pot is carried the hand must be able to win it.
+// Same rule as the server: at least match the bar (Trojicas compare by rank, 888 > 777);
+// while a pot is carried the hand must be able to win it and beat the bar outright.
 const RANKS = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 function reachesBar(me: Player, view: GameView) {
   const score = me.score ?? 0;
   if (score <= 0 || score < view.minScoreToBeat) return false;
   if (view.potThreshold > 0 && (view.spicTie ? score < 31 : score <= view.potThreshold)) return false;
+  // While a pot is carried a tie with the bar doesn't count: it has to be beaten.
+  if (view.potThreshold > 0 && view.minScoreToBeat > 0 && score === view.minScoreToBeat
+    && !(view.barHand?.k === 'trojica' && me.handDesc?.k === 'trojica'
+      && RANKS.indexOf(String(me.handDesc.v)) > RANKS.indexOf(String(view.barHand.v)))) return false;
   if (score > view.minScoreToBeat || view.barHand?.k !== 'trojica' || me.handDesc?.k !== 'trojica') return true;
   return RANKS.indexOf(String(me.handDesc.v)) >= RANKS.indexOf(String(view.barHand.v));
 }

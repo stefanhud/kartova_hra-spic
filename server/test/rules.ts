@@ -383,6 +383,33 @@ async function carriedPotSwaps() {
   await h.close();
 }
 
+// While a pot is carried, a tie with the bar doesn't count: a swap has to beat it.
+async function carriedPotNoTieSwaps() {
+  console.log('• with a carried pot, a swap has to beat the bar, not just match it');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 4, false);
+  const [a, b, c, d] = bots;
+  await playTieAt29(h, bots);
+  await deal(h, bots, 1, [
+    'DA', 'D9', /* A */ 'HA', 'H9', /* B (banker) */ 'C8', 'H7', /* C */ 'S7', 'H8', /* D */
+    'CK', 'SK', // third cards (A, B)
+    'D10', 'H10', 'C7', 'S8', // talon
+  ]);
+  await act(h, c, 2, 'playerAction', 'FOLD');
+  await act(h, d, 3, 'playerAction', 'FOLD');
+  await act(h, a, 0, 'playerAction', 'CALL');
+  await act(h, a, 0, 'playerAction', 'CALL');
+  await act(h, a, 0, 'swapCard', 2, 0); // CK <-> D10: Flush 30, the bar
+  // The banker could only tie at 30 (SK <-> H10): not allowed, passed automatically.
+  await showdown(h);
+  check(h.state().log.some(e => e.key === 'cantImprove' && e.p?.name === 'Bot1'), 'the banker cannot swap to tie the bar at 30');
+  check(!h.state().log.some(e => e.key === 'swapped' && e.p?.name === 'Bot1'), 'the banker did not swap');
+  check(h.state().gameWinner === player(h, 0).id, 'A wins the carried pot with 30');
+  void b;
+  bots.forEach(x => x.disconnect());
+  await h.close();
+}
+
 // Set everyone's score directly (seat -> [score before the pot, paid into the current pot]).
 function setScores(h: Harness, scores: Record<number, [number, number]>) {
   let pot = 0;
@@ -507,6 +534,7 @@ async function hostSettings() {
   await swapToTie();
   await trojicaRanks();
   await carriedPotSwaps();
+  await carriedPotNoTieSwaps();
   await hostSettings();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);

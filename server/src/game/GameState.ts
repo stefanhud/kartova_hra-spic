@@ -90,7 +90,9 @@ export interface GameState {
   currentBet: number;     // The bet everyone has to match this betting round
   talon: Card[];
   log: LogEntry[];
-  minScoreToBeat: number; // The score a talon swap has to exceed
+  minScoreToBeat: number; // The bar: score a talon swap has to reach (a match is a tie)
+  barTieBreak: number;    // Trojica rank of the bar, so a lower Trojica never "matches" a higher one
+  barHand: HandCode | null; // The bar as a hand, for display (e.g. Trojica 8)
   swappedPlayers: string[]; // Player ids who have swapped or passed this talon round
   gameWinner: string | null;
   potThreshold: number;   // Escalation rule: after a tie, the next winner must EXCEED this score
@@ -138,6 +140,8 @@ export function createInitialState(): GameState {
     talon: [],
     log: [{ id: 1, key: 'tableOpen' }],
     minScoreToBeat: 0,
+    barTieBreak: 0,
+    barHand: null,
     swappedPlayers: [],
     gameWinner: null,
     potThreshold: 0,

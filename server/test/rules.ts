@@ -302,6 +302,38 @@ async function swapToTie() {
   await h.close();
 }
 
+// Two Trojicas never tie: 888 beats 777 although both score 30.5 (the bar and the showdown).
+async function trojicaRanks() {
+  console.log('• a lower Trojica never matches a higher one; a higher one beats it');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 3, false);
+  const [a, b, c] = bots;
+  await deal(h, bots, 0, [
+    'C9', 'D9', /* A (banker) */ 'D8', 'C8', /* B */ 'H7', 'D7', /* C */
+    'HA', 'SJ', 'SQ', // third cards
+    'H8', 'C7', 'S9', 'DK', // talon
+  ]);
+  for (let round = 0; round < 2; round++) {
+    await act(h, b, 1, 'playerAction', 'CALL');
+    await act(h, c, 2, 'playerAction', 'CALL');
+  }
+  await act(h, b, 1, 'swapCard', 2, 0); // SJ <-> H8: Trojica 8 is the bar
+  check(h.state().barHand?.k === 'trojica' && h.state().barHand?.v === '8', 'the bar is Trojica 8');
+  // C could only make Trojica 7: not offered, and passed automatically.
+  await waitFor(() => h.state().turnIndex === 0 && h.state().turnDeadline > 0, 2000, "the banker's swap turn");
+  check(h.state().log.some(e => e.key === 'cantImprove' && e.p?.name === 'Bot2'), 'C (Trojica 7 at best) cannot swap against Trojica 8');
+  check(!player(h, 2).hand.every(x => x.rank === '7'), 'C did not get a Trojica 7');
+  // The banker can make Trojica 9, which beats Trojica 8.
+  await sleep(40);
+  check(!!a.view?.swapOptions.some(o => o.h === 2 && o.t === 2), 'the banker is offered HA <-> S9 for Trojica 9');
+  await act(h, a, 0, 'swapCard', 2, 2);
+  await showdown(h);
+  const s = h.state();
+  check(s.result?.winnerIds.length === 1 && s.gameWinner === player(h, 0).id, 'Trojica 9 beats Trojica 8 at the showdown (no tie)');
+  bots.forEach(x => x.disconnect());
+  await h.close();
+}
+
 // Set everyone's score directly (seat -> [score before the pot, paid into the current pot]).
 function setScores(h: Harness, scores: Record<number, [number, number]>) {
   let pot = 0;
@@ -424,6 +456,7 @@ async function hostSettings() {
   await mustBeatTiedScore(30);
   await cashOut();
   await swapToTie();
+  await trojicaRanks();
   await hostSettings();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);

@@ -143,7 +143,7 @@ export default function App() {
       return;
     }
     if (!valid) {
-      showToast(t(other === null ? 'cardCant' : 'swapCant', { need: view.minScoreToBeat }), 'info', 2400);
+      showToast(t(other === null ? 'cardCant' : 'swapCant', { need: view.minScoreToBeat > 0 ? view.barHand ?? view.minScoreToBeat : 0 }), 'info', 2400);
       return;
     }
     setSelection({ ...cur, [kind]: index });

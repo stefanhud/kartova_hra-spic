@@ -90,6 +90,8 @@ export interface GameView {
   talon: Card[];
   log: LogEntry[];
   minScoreToBeat: number;
+  barTieBreak: number;
+  barHand: HandCode | null; // the bar as a hand (Trojicas compare by rank)
   swappedPlayers: string[];
   gameWinner: string | null;
   potThreshold: number;

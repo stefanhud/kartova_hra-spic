@@ -11,6 +11,12 @@ export interface ExtendedHandResult extends HandResult {
 const RANK_ORDER: Record<string, number> = { '7': 1, '8': 2, '9': 3, '10': 4, 'J': 5, 'Q': 6, 'K': 7, 'A': 8 };
 
 export class HandEvaluator {
+  // Compare two hands the way the showdown does: score first, then the Trojica rank
+  // (888 beats 777 although both score 30.5). 0 = a real tie.
+  static compare(a: { score: number; tieBreak?: number }, b: { score: number; tieBreak?: number }): number {
+    return a.score - b.score || (a.tieBreak ?? 0) - (b.tieBreak ?? 0);
+  }
+
 
   static evaluate(cards: Card[]): ExtendedHandResult {
     if (!cards || cards.length < 3) {

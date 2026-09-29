@@ -29,6 +29,15 @@ interface Props {
   actions: DockActions;
 }
 
+// Same rule as the server: at least match the bar; Trojicas compare by rank (888 > 777).
+const RANKS = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+function reachesBar(me: Player, view: GameView) {
+  const score = me.score ?? 0;
+  if (score <= 0 || score < view.minScoreToBeat) return false;
+  if (score > view.minScoreToBeat || view.barHand?.k !== 'trojica' || me.handDesc?.k !== 'trojica') return true;
+  return RANKS.indexOf(String(me.handDesc.v)) >= RANKS.indexOf(String(view.barHand.v));
+}
+
 export function Dock({ view, me, clockOffset, connected, selection, actions }: Props) {
   const { t, lang, hand } = useI18n();
   const [looking, setLooking] = useState(false); // first tap on "look" asks for confirmation
@@ -174,7 +183,7 @@ export function Dock({ view, me, clockOffset, connected, selection, actions }: P
           <button type="button" className="btn btn--ghost" onClick={actions.clearSelection}>{t('cancel')}</button>
         )}
         <button type="button" className="btn btn--neutral" onClick={actions.pass}>
-          {me && (me.score ?? 0) > 0 && (me.score ?? 0) >= view.minScoreToBeat ? t('keepHand') : t('pass')}
+          {me && reachesBar(me, view) ? t('keepHand') : t('pass')}
         </button>
       </div>
     );

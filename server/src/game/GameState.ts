@@ -35,8 +35,8 @@ export interface Player {
   id: string;             // Public id (random). Never the socket id or the secret session token.
   name: string;
   seatIndex: number;      // 0-5 (max 6 players)
-  chips: number;           // Euro cents
-  bought: number;          // Everything taken from the wallet: buy-in + top-ups (cents); balance = chips - bought
+  balance: number;        // Running score for the evening (cents): everyone sits down at 0, can go negative
+  potShare: number;       // Paid into the current pot since it was last won (cents); lost when leaving
   hand: Card[];
   isFolded: boolean;      // Also true while sitting out a round
   bet: number;            // Bet in the current betting round (cents)
@@ -48,10 +48,19 @@ export interface Player {
   score?: number;
   hasLooked?: boolean;    // Banker only: peeked at their cards, forfeiting the blind talon privilege
   hasActed?: boolean;     // Acted since the last raise in the current betting round
-  sittingOut?: boolean;   // Not dealt into the current round (joined late, offline or out of chips)
+  sittingOut?: boolean;   // Not dealt into the current round (joined late or offline)
   connected: boolean;
   lastAction?: ActionTag; // Short tag shown next to the seat
   handDesc?: HandCode;    // Only filled in client views, for hands the viewer may see
+}
+
+// Settling up with the table when leaving for good. amount > 0: the leaver pays that player,
+// amount < 0: that player pays the leaver. `lost` is the leaver's money in the current pot:
+// it stays in the pot and is handed to `holder` (the host), who keeps it for the pot.
+export interface CashOut {
+  payments: { name: string; amount: number }[];
+  lost: number;
+  holder: string | null;
 }
 
 export interface LogEntry extends Msg {
@@ -106,15 +115,13 @@ export interface ClientView extends GameState {
   serverNow: number;      // Lets the client correct its clock for the turn timer
   swapOptions: SwapOption[];
   canRaise: boolean;      // Viewer may raise right now
+  cashOut: CashOut | null; // What the viewer would pay/get if they settled and left now
   config: {
     ante: number;
     raiseSteps: number[];
     turnSeconds: number;
     options: typeof SETTING_OPTIONS;
     maxRaises: number;
-    minBuyIn: number;
-    maxBuyIn: number;
-    defaultBuyIn: number;
     seats: number;
   };
 }

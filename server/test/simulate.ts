@@ -2,7 +2,7 @@
 //
 //   npm test            (from server/)
 //
-// Bot tables of 2-6 players with random play, disconnects, rebuys and late joins.
+// Bot tables of 2-6 players with random play, disconnects, cash-outs and late joins.
 // The harness checks the game's invariants after every state change (see harness.ts).
 import { Bot, FAST, check, failureCount, printCoverage, rand, seatBots, sleep, startServer, waitFor } from './harness';
 
@@ -39,7 +39,7 @@ async function scenarioFirstPlayerFolds() {
 }
 
 async function scenarioReconnectKeepsSeat() {
-  console.log('• a player reconnecting keeps seat, chips and cards');
+  console.log('• a player reconnecting keeps seat, score and cards');
   const h = await startServer({ ...FAST, turn: 5000, reconnectGrace: 5000 });
   const bots = await seatBots(h, 3, false);
   bots[0].emit('startGame');
@@ -47,7 +47,7 @@ async function scenarioReconnectKeepsSeat() {
 
   const victim = bots.find(b => b.me()!.seatIndex !== h.state().dealerIndex)!;
   const before = h.state().players.find(p => p.name === victim.name)!;
-  const snapshot = { id: before.id, seat: before.seatIndex, chips: before.chips, hand: JSON.stringify(before.hand) };
+  const snapshot = { id: before.id, seat: before.seatIndex, balance: before.balance, hand: JSON.stringify(before.hand) };
   victim.disconnect();
   await waitFor(() => h.state().players.find(p => p.id === snapshot.id)?.connected === false, 500, 'disconnect noticed');
   await victim.connect();
@@ -55,7 +55,7 @@ async function scenarioReconnectKeepsSeat() {
 
   const after = h.state().players.find(p => p.id === snapshot.id);
   check(after, 'player still seated after reconnect');
-  check(after?.seatIndex === snapshot.seat && after?.chips === snapshot.chips, 'same seat and chips');
+  check(after?.seatIndex === snapshot.seat && after?.balance === snapshot.balance, 'same seat and score');
   check(JSON.stringify(after?.hand) === snapshot.hand, 'same cards');
   check(!after?.isFolded, 'not folded by a short disconnect');
   bots.forEach(b => b.disconnect());
@@ -91,7 +91,7 @@ async function scenarioRejectsBadInput() {
   spy.emit('joinGame', 'x'.repeat(200), 2, 'lots');
   await waitFor(() => h.state().players.length === 1, 300, 'valid join');
   const p = h.state().players[0];
-  check(p.name.length <= 16 && p.chips === 2000, `name clamped and NaN buy-in defaulted (${p.name.length}, ${p.chips})`);
+  check(p.name.length <= 16 && p.balance === 0, `name clamped, sits down at €0 (${p.name.length}, ${p.balance})`);
 
   const bots = await seatBots(h, 2, false);
   bots[0].emit('startGame');
@@ -127,7 +127,7 @@ async function scenarioRejectsBadInput() {
 }
 
 async function scenarioChaos(players: number, targetRounds: number) {
-  console.log(`• chaos: ${players} bots, ${targetRounds} hands with random leaves, disconnects and rebuys`);
+  console.log(`• chaos: ${players} bots, ${targetRounds} hands with random leaves, cash-outs and disconnects`);
   const h = await startServer();
   let bots = await seatBots(h, players, true);
   let spare = 0;
@@ -136,8 +136,7 @@ async function scenarioChaos(players: number, targetRounds: number) {
   while (h.rounds() < targetRounds && Date.now() < end) {
     const s = h.state();
     if (s.phase === 'WAITING') {
-      // Busted bots rebuy, and somebody deals.
-      for (const b of bots) if (b.me()?.chips === 0) b.emit('rebuy', 1000);
+      // Somebody deals.
       bots[rand(bots.length)]?.emit('startGame');
     }
 
@@ -145,7 +144,9 @@ async function scenarioChaos(players: number, targetRounds: number) {
     if (r < 0.01 && bots.length > 2) {
       // Someone leaves for good.
       const b = bots.splice(rand(bots.length), 1)[0];
-      if (Math.random() < 0.5) b.emit('leaveGame');
+      const how = Math.random();
+      if (how < 0.4) b.emit('cashOut');
+      else if (how < 0.7) b.emit('leaveGame');
       setTimeout(() => b.disconnect(), 10);
     } else if (r < 0.02 && bots.length > 0) {
       // Connection blip: drop and come back with the same token.
@@ -158,7 +159,7 @@ async function scenarioChaos(players: number, targetRounds: number) {
       if (free.length) {
         const b = new Bot(h.url, `New${spare++}`);
         await b.connect();
-        b.emit('joinGame', b.name, free[rand(free.length)], 500 + rand(4500));
+        b.emit('joinGame', b.name, free[rand(free.length)]);
         bots.push(b);
       }
     }

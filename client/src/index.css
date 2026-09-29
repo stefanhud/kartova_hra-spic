@@ -591,12 +591,6 @@ input:focus-visible {
   white-space: nowrap;
 }
 
-.seat__score {
-  font-size: 10.5px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
 .is-up {
   color: var(--green);
 }
@@ -1794,6 +1788,22 @@ button.card {
 }
 
 .settings .btn {
+  margin-top: 10px;
+}
+
+.cashout__score {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 4px 0 2px;
+  font-weight: 700;
+}
+
+.cashout__score b {
+  font-size: 24px;
+}
+
+.cashout .btn {
   margin-top: 10px;
 }
 

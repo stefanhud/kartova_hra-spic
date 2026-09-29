@@ -1,8 +1,9 @@
 // Shared test harness: a real Socket.IO game server with invariant checks, plus bot clients.
 //
 // After every state change on the server it checks that:
-//   - money is conserved (chips + pot only change on join / rebuy / leave)
-//   - no card is dealt twice, chips and debts are never negative
+//   - money is conserved: running scores + scores of players who left + pot always add up to 0
+//   - a cash-out settles the leaver to exactly 0; pot shares are never negative
+//   - no card is dealt twice, debts are never negative
 //   - a live round always has a pending timer, so it can never stall
 //   - only the first/last player raises, at most one raise + one re-raise per round
 //   - a won pot clears every debt
@@ -64,7 +65,7 @@ export const COVERAGE_PATTERNS: [string, (e: Entry) => boolean][] = [
   ['debt paid', e => is('checks', 'calls', 'raised', 'reraised')(e) && (e.p?.debt ?? 0) > 0],
   ['dealer pays', is('paysAndDeals')], ['dealer skips', is('skipsDeal', 'skipsDealTimeout')],
   ['disconnect', is('lostConn')], ['reconnect', is('back')], ['removed offline', is('removed')],
-  ['top-up', is('topUp')], ['late join', e => e.key === 'satDown' && !!e.p?.late],
+  ['cash-out', is('cashedOut')], ['late join', e => e.key === 'satDown' && !!e.p?.late],
 ];
 
 export async function startServer(timings: Timings = FAST): Promise<Harness> {
@@ -77,33 +78,28 @@ export async function startServer(timings: Timings = FAST): Promise<Harness> {
 
   const anyGm = gm as any;
   const state = (): GameState => anyGm.state;
-  const money = () => state().players.reduce((a, p) => a + p.chips, 0) + state().pot;
-  let moneyChanging = false;
   let showdowns = 0;
   let lastPhase = 'WAITING';
   let lastLogId = 0;
 
-  // Methods that legitimately add or remove money from the table.
-  for (const m of ['handleJoin', 'handleRebuy', 'removePlayer', 'resetTable', 'topUp']) {
-    const orig = anyGm[m].bind(gm);
-    anyGm[m] = (...args: unknown[]) => {
-      moneyChanging = true;
-      return orig(...args);
-    };
-  }
+  // A cash-out must settle the leaver to exactly 0 (nothing left on the "left" list).
+  const origCashOut = anyGm.cashOut.bind(gm);
+  anyGm.cashOut = (player: { name: string } | undefined) => {
+    const before = state().departed.length;
+    origCashOut(player);
+    if (player) check(state().departed.length === before, `${player.name} cashed out but still has a score`);
+  };
 
   const origRun = anyGm.run.bind(gm);
   anyGm.run = (fn: () => void) => {
-    const before = money();
     const b = state();
     const betBefore = { phase: b.phase, roundId: b.roundId, currentBet: b.currentBet };
-    moneyChanging = false;
     origRun(fn);
     const s = state();
-    if (!moneyChanging) check(money() === before, `money changed ${before} -> ${money()} in phase ${s.phase}`);
 
     for (const p of s.players) {
-      check(Number.isInteger(p.chips) && p.chips >= 0, `bad chips for ${p.name}: ${p.chips}`);
+      check(Number.isInteger(p.balance), `bad balance for ${p.name}: ${p.balance}`);
+      check(Number.isInteger(p.potShare) && p.potShare >= 0 && (s.pot > 0 || p.potShare === 0), `bad pot share for ${p.name}: ${p.potShare}`);
       check(Number.isInteger(p.debt) && p.debt >= 0, `bad debt for ${p.name}: ${p.debt}`);
       check(p.handBets >= 0, `bad handBets for ${p.name}: ${p.handBets}`);
       check(p.seatIndex >= 0 && p.seatIndex < 6, `bad seat ${p.seatIndex}`);
@@ -128,9 +124,9 @@ export async function startServer(timings: Timings = FAST): Promise<Harness> {
       check(raiser && raiser.seatIndex !== s.dealerIndex, 'the banker raised');
     }
     // Zero-sum: every euro someone is up, someone else is down (or it's in the pot).
-    const balances = s.players.reduce((a, p) => a + p.chips - p.bought, 0) + s.departed.reduce((a, d) => a + d.balance, 0);
+    const balances = s.players.reduce((a, p) => a + p.balance, 0) + s.departed.reduce((a, d) => a + d.balance, 0);
     check(balances + s.pot === 0, `balances don't add up: players/departed ${balances} + pot ${s.pot}`);
-    check(s.players.every(p => p.chips >= 0 && p.bought >= p.chips - 1e9), 'bad wallet');
+    check(s.players.reduce((a, p) => a + p.potShare, 0) <= s.pot, 'pot shares exceed the pot');
 
     // A won pot wipes every debt.
     if (s.phase === 'SHOWDOWN' && s.gameWinner) {
@@ -288,12 +284,12 @@ export async function waitFor(pred: () => boolean, ms: number, what: string) {
 }
 
 // Seats bot i at seat i.
-export async function seatBots(h: Harness, n: number, auto = true, buyIn?: number) {
+export async function seatBots(h: Harness, n: number, auto = true) {
   const bots: Bot[] = [];
   for (let i = 0; i < n; i++) {
     const b = new Bot(h.url, `Bot${i}`, auto);
     await b.connect();
-    b.emit('joinGame', b.name, i, buyIn ?? 500 + rand(4500));
+    b.emit('joinGame', b.name, i);
     bots.push(b);
     await waitFor(() => h.state().players.length === i + 1, 1000, `${b.name} seated`);
   }

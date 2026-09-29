@@ -36,7 +36,6 @@ function badgeFor(p: Player, phase: Phase, isWinner: boolean, t: I18n['t']): { t
   if (p.benched) return { text: t('bOutTillWin'), tone: 'muted' };
   if (handLive && p.sittingOut) return { text: t('bNextHand'), tone: 'muted' };
   if (handLive && p.isFolded) return { text: t('bFolded'), tone: 'muted' };
-  // No "all-in" / "busted": €0 chips just means the next payment comes from the wallet.
   return null;
 }
 
@@ -76,14 +75,11 @@ export function Seat({ player: p, pos, isMe, isDealer, isTurn, timer, phase, isW
         </div>
         <div className="seat__plate">
           <div className="seat__name">{isMe ? t('you') : p.name}</div>
-          <div className="seat__chips">{euro(p.chips)}</div>
+          <div className={`seat__chips${p.balance > 0 ? ' is-up' : p.balance < 0 ? ' is-down' : ''}`}>{balanceLabel(p.balance)}</div>
           {p.bet > 0 && (
             <div className="seat__bet"><span className="bet__chip" />{euro(p.bet)}</div>
           )}
           {p.debt > 0 && !p.benched && <div className="seat__debt">{t('owes', { amount: p.debt })}</div>}
-          {p.chips !== p.bought && (
-            <div className={`seat__score ${p.chips > p.bought ? 'is-up' : 'is-down'}`}>{balanceLabel(p.chips - p.bought)}</div>
-          )}
         </div>
         {bubble && <div className="seat__bubble" key={bubble}>{bubble}</div>}
       </div>

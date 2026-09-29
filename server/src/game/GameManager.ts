@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { Server, Socket } from 'socket.io';
 import { Card, HandType } from './types';
 import {
-  ClientView, GameState, Msg, MsgParam, Player, RoundResult, SETTING_OPTIONS, SwapOption, createInitialState,
+  CashOut, ClientView, GameState, Msg, MsgParam, Player, RoundResult, SETTING_OPTIONS, SwapOption, createInitialState,
 } from './GameState';
 import { Deck } from './deck';
 import { HandEvaluator } from './HandEvaluator';
@@ -12,9 +12,6 @@ import { HandEvaluator } from './HandEvaluator';
 // (the host can change them between hands); see DEFAULT_SETTINGS.
 export const SEATS = 6;
 export const MAX_RAISES = 2;               // One raise and one re-raise per betting round
-export const MIN_BUY_IN = 500;
-export const MAX_BUY_IN = 5000;
-export const DEFAULT_BUY_IN = 2000;
 const MAX_NAME = 16;
 const LOG_SIZE = 30;
 
@@ -112,9 +109,9 @@ export class GameManager {
       });
     };
 
-    on('joinGame', (player, name, seatIndex, buyIn) => this.handleJoin(socket, token, player, name, seatIndex, buyIn));
+    on('joinGame', (player, name, seatIndex) => this.handleJoin(socket, token, player, name, seatIndex));
     on('leaveGame', player => player && this.removePlayer(player.id, 'left'));
-    on('rebuy', (player, amount) => this.handleRebuy(socket, player, amount));
+    on('cashOut', player => this.cashOut(player));
     on('startGame', player => this.handleStart(socket, player));
     on('playerAction', (player, action, amount) => this.handlePlayerAction(socket, player, action, amount));
     on('bankerLook', player => this.handleBankerLook(player));
@@ -161,7 +158,7 @@ export class GameManager {
   // SEATING
   // ---------------------------------------------------------------------------
 
-  private handleJoin(socket: Socket, token: string, existing: Player | undefined, rawName: unknown, rawSeat: unknown, rawBuyIn: unknown) {
+  private handleJoin(socket: Socket, token: string, existing: Player | undefined, rawName: unknown, rawSeat: unknown) {
     const seatIndex = Number(rawSeat);
     if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= SEATS) return;
     if (this.playerAt(seatIndex)) return this.error(socket, 'errSeatTaken');
@@ -185,8 +182,8 @@ export class GameManager {
       id: randomBytes(8).toString('hex'),
       name,
       seatIndex,
-      chips: this.clampBuyIn(rawBuyIn),
-      bought: 0,
+      balance: 0,
+      potShare: 0,
       hand: [],
       isFolded: inRound,
       sittingOut: inRound,
@@ -197,12 +194,11 @@ export class GameManager {
       score: 0,
       connected: true,
     };
-    player.bought = player.chips;
     this.state.players.push(player);
     this.tokenPlayer.set(token, player.id);
     this.playerToken.set(player.id, token);
     if (!this.state.hostId) this.state.hostId = player.id;
-    this.log('satDown', { name, seat: seatIndex + 1, chips: player.chips, late: inRound, debt: player.debt });
+    this.log('satDown', { name, seat: seatIndex + 1, late: inRound, debt: player.debt });
   }
 
   // The host may change the table settings between hands (only to the offered options).
@@ -227,23 +223,72 @@ export class GameManager {
     });
   }
 
-  private handleRebuy(socket: Socket, player: Player | undefined, rawAmount: unknown) {
-    if (!player || player.chips > 0) return;
-    const dealtIn = this.isInRound() && this.state.phase !== 'DEALER_CHOICE' && !player.sittingOut;
-    if (dealtIn) return this.error(socket, 'errRebuyLater');
-    player.chips = this.clampBuyIn(rawAmount);
-    player.bought += player.chips;
-    this.log('rebought', { name: player.name, amount: player.chips });
+  // ---------------------------------------------------------------------------
+  // CASHING OUT: settle with the table and leave, the others play on
+  // ---------------------------------------------------------------------------
+
+  // The leaver settles what they won or lost before the current pot. Their money in the pot
+  // is lost: it goes (in cash) to the host, who keeps it for whoever wins the pot.
+  private cashOutPlan(leaver: Player): { player: Player; amount: number }[] {
+    const s = this.state;
+    const others = s.players.filter(p => p !== leaver);
+    if (!others.length) return [];
+    const holder = others.find(p => p.id === s.hostId) ?? others[0];
+    const before = (p: Player) => p.balance + p.potShare; // score before the current pot
+    const plan = new Map<Player, number>();
+    const add = (p: Player, amount: number) => plan.set(p, (plan.get(p) ?? 0) + amount);
+
+    // Losers pay the biggest winners first; winners are paid by the biggest losers first.
+    let rest = before(leaver);
+    if (rest < 0) {
+      for (const p of others.filter(o => before(o) > 0).sort((a, b) => before(b) - before(a))) {
+        const amount = Math.min(-rest, before(p));
+        add(p, amount);
+        rest += amount;
+        if (rest === 0) break;
+      }
+    } else if (rest > 0) {
+      for (const p of others.filter(o => before(o) < 0).sort((a, b) => before(a) - before(b))) {
+        const amount = Math.min(rest, -before(p));
+        add(p, -amount);
+        rest -= amount;
+        if (rest === 0) break;
+      }
+    }
+    if (rest !== 0) add(holder, -rest); // only if players who left unsettled hold the other side
+    if (leaver.potShare > 0) add(holder, leaver.potShare);
+    return [...plan].filter(([, amount]) => amount !== 0).map(([player, amount]) => ({ player, amount }));
   }
 
-  // Buy-ins are whole 50-cent steps between the table limits.
-  private clampBuyIn(raw: unknown): number {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return DEFAULT_BUY_IN;
-    return Math.max(MIN_BUY_IN, Math.min(MAX_BUY_IN, Math.round(n / 50) * 50));
+  private cashOut(player: Player | undefined) {
+    if (!player) return;
+    const s = this.state;
+    const plan = this.cashOutPlan(player);
+    const holder = s.players.filter(p => p !== player).find(p => p.id === s.hostId) ?? s.players.find(p => p !== player);
+    for (const { player: other, amount } of plan) {
+      other.balance -= amount;
+      player.balance += amount;
+    }
+    // The holder now keeps the leaver's pot money in cash, as if they had put it in themselves.
+    if (holder) holder.potShare += player.potShare;
+    const pays = plan.filter(x => x.amount > 0).map(x => ({ name: x.player.name, amount: x.amount }));
+    const gets = plan.filter(x => x.amount < 0).map(x => ({ name: x.player.name, amount: -x.amount }));
+    this.log('cashedOut', { name: player.name, pays, gets, lost: player.potShare, holder: holder?.name });
+    player.potShare = 0;
+    this.removePlayer(player.id, 'cashedOut');
   }
 
-  private removePlayer(playerId: string, reason: 'left' | 'timeout') {
+  private cashOutView(player: Player): CashOut {
+    const others = this.state.players.filter(p => p !== player);
+    const holder = others.find(p => p.id === this.state.hostId) ?? others[0];
+    return {
+      payments: this.cashOutPlan(player).map(x => ({ name: x.player.name, amount: x.amount })),
+      lost: player.potShare,
+      holder: holder?.name ?? null,
+    };
+  }
+
+  private removePlayer(playerId: string, reason: 'left' | 'timeout' | 'cashedOut') {
     const s = this.state;
     const player = s.players.find(p => p.id === playerId);
     if (!player) return;
@@ -258,9 +303,9 @@ export class GameManager {
     this.playerToken.delete(playerId);
     s.players = s.players.filter(p => p.id !== playerId);
     // Their result for the evening stays on record for settling up.
-    if (player.chips !== player.bought) s.departed.push({ name: player.name, balance: player.chips - player.bought });
+    if (player.balance !== 0) s.departed.push({ name: player.name, balance: player.balance });
 
-    this.log(reason === 'timeout' ? 'removed' : 'left', { name: player.name, folds: wasActive });
+    if (reason !== 'cashedOut') this.log(reason === 'timeout' ? 'removed' : 'left', { name: player.name, folds: wasActive });
     // The longest-seated player takes over as host.
     if (s.hostId === playerId) s.hostId = s.players[0]?.id ?? null;
 
@@ -387,20 +432,16 @@ export class GameManager {
     if (next) this.offerDeal(next);
   }
 
-  // Take the missing money from the player's wallet so their chips cover `needed`.
-  private topUp(p: Player, needed: number) {
-    const missing = needed - p.chips;
-    if (missing <= 0) return;
-    p.chips += missing;
-    p.bought += missing;
-    this.log('topUp', { name: p.name, amount: missing });
+  // Everything is played on credit: paying into the pot just lowers your running score.
+  private pay(p: Player, amount: number) {
+    p.balance -= amount;
+    p.potShare += amount;
+    this.state.pot += amount;
   }
 
   private payDebt(p: Player) {
     const paid = p.debt;
-    this.topUp(p, paid);
-    p.chips -= paid;
-    this.state.pot += paid;
+    this.pay(p, paid);
     p.debt = 0;
     return paid;
   }
@@ -443,10 +484,7 @@ export class GameManager {
       p.isFolded = false;
       p.sittingOut = false;
 
-      const ante = s.settings.ante;
-      this.topUp(p, ante);
-      p.chips -= ante;
-      s.pot += ante;
+      this.pay(p, s.settings.ante);
 
       const c1 = this.deck.draw();
       const c2 = this.deck.draw();
@@ -577,7 +615,6 @@ export class GameManager {
     }
 
     if (rawAction === 'CALL') {
-      this.topUp(player, due + (s.currentBet - player.bet));
       const paidDebt = due ? this.payDebt(player) : 0;
       this.applyCall(player, { paidDebt });
       return;
@@ -589,13 +626,10 @@ export class GameManager {
       if (!this.canRaise(player)) return this.error(socket, 'errOnlyFirstLast');
       const raiseTo = s.currentBet + step;
       const cost = raiseTo - player.bet;
-      this.topUp(player, cost + due);
-
       const paidDebt = due ? this.payDebt(player) : 0;
-      player.chips -= cost;
+      this.pay(player, cost);
       player.bet = raiseTo;
       player.handBets += cost;
-      s.pot += cost;
       s.currentBet = raiseTo;
       s.raisesThisRound++;
       s.lastRaiserId = player.id;
@@ -619,12 +653,10 @@ export class GameManager {
   private applyCall(player: Player, opts: { banker?: boolean; timedOut?: boolean; paidDebt?: number } = {}) {
     const s = this.state;
     const owed = s.currentBet - player.bet;
-    this.topUp(player, owed); // the banker (or anyone short) takes it from the wallet
     const pay = owed;
-    player.chips -= pay;
+    this.pay(player, pay);
     player.bet += pay;
     player.handBets += pay;
-    s.pot += pay;
     player.hasActed = true;
 
     player.lastAction = owed === 0 ? { k: 'check' } : { k: 'call', a: pay };
@@ -977,7 +1009,7 @@ export class GameManager {
     if (winners.length === 1) {
       const winner = winners[0];
       const hand = HandEvaluator.evaluate(winner.hand).code;
-      winner.chips += pot;
+      winner.balance += pot;
       s.gameWinner = winner.id;
       s.pot = 0;
       s.potThreshold = 0;
@@ -987,6 +1019,7 @@ export class GameManager {
       for (const p of s.players) {
         p.debt = 0;
         p.benched = false;
+        p.potShare = 0;
       }
       this.log(byFold ? 'winsFold' : 'wins', { name: winner.name, amount: pot, hand });
       result = {
@@ -1239,15 +1272,13 @@ export class GameManager {
       serverNow: Date.now(),
       swapOptions,
       canRaise,
+      cashOut: viewer ? this.cashOutView(viewer) : null,
       config: {
         ante: s.settings.ante,
         raiseSteps: s.settings.raiseSteps,
         turnSeconds: s.settings.turnSeconds,
         options: SETTING_OPTIONS,
         maxRaises: MAX_RAISES,
-        minBuyIn: MIN_BUY_IN,
-        maxBuyIn: MAX_BUY_IN,
-        defaultBuyIn: DEFAULT_BUY_IN,
         seats: SEATS,
       },
     };

@@ -13,8 +13,8 @@ export interface Player {
   id: string;
   name: string;
   seatIndex: number;
-  chips: number;     // euro cents (all money is in cents)
-  bought: number;    // buy-in + top-ups; running score = chips - bought
+  balance: number;   // running score for the evening in euro cents (everyone starts at 0)
+  potShare: number;  // paid into the current pot (lost if you leave before it's won)
   hand: Card[];
   isFolded: boolean;
   bet: number;
@@ -59,6 +59,14 @@ export interface RoundResult {
   detail: Msg[];
 }
 
+// Settling up when leaving: amount > 0 you pay that player, < 0 they pay you.
+// `lost` is your money in the current pot, handed to `holder` who keeps it for the pot.
+export interface CashOut {
+  payments: { name: string; amount: number }[];
+  lost: number;
+  holder: string | null;
+}
+
 export interface Settings {
   turnSeconds: number;
   ante: number;
@@ -101,15 +109,13 @@ export interface GameView {
   serverNow: number;
   swapOptions: SwapOption[];
   canRaise: boolean;
+  cashOut: CashOut | null;
   config: {
     ante: number;
     raiseSteps: number[];
     turnSeconds: number;
     options: { turnSeconds: number[]; ante: number[]; raiseSteps: number[][] };
     maxRaises: number;
-    minBuyIn: number;
-    maxBuyIn: number;
-    defaultBuyIn: number;
     seats: number;
   };
 }

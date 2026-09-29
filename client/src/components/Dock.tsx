@@ -106,12 +106,11 @@ export function Dock({ view, me, clockOffset, connected, selection, actions }: P
       <button type="button" className="btn btn--primary btn--wide" onClick={actions.deal} disabled={ready < 2}>{t('dealCards')}</button>
     );
   } else if (me && view.phase === 'DEALER_CHOICE' && hasClock) {
-    const short = me.debt - me.chips;
     controls = (
       <div className="duo">
         <button type="button" className="btn btn--primary btn--stack" onClick={() => actions.dealerChoice('PAY')}>
           {t('payDeal', { amount: me.debt })}
-          <span className="btn__sub">{short > 0 ? t('topsUpWallet', { amount: short }) : t('andPlay')}</span>
+          <span className="btn__sub">{t('andPlay')}</span>
         </button>
         <button type="button" className="btn btn--neutral btn--stack" onClick={() => actions.dealerChoice('SKIP')}>
           {t('skip')}
@@ -128,14 +127,10 @@ export function Dock({ view, me, clockOffset, connected, selection, actions }: P
       );
     } else {
       const active = hasClock;
-      // Short of chips? The missing money comes from the wallet (shown in the running score).
-      const short = owed + due - me.chips;
       const callText = owed === 0 ? t('check') : t('call', { amount: owed });
-      const callSub = [due > 0 && t('plusOwed', { amount: due }), short > 0 && t('topUpX', { amount: short })].filter(Boolean).join(' · ') || null;
+      const callSub = due > 0 ? t('plusOwed', { amount: due }) : null;
       const mayRaise = view.raiserSeats.includes(me.seatIndex);
-      const minRaiseCost = view.currentBet + view.config.raiseSteps[0] - me.bet + due;
-      const raiseLabel = !mayRaise ? t('noRaise') : active && !view.canRaise ? t('raiseUsed')
-        : minRaiseCost > me.chips ? t('topUpRaise') : t('raise');
+      const raiseLabel = !mayRaise ? t('noRaise') : active && !view.canRaise ? t('raiseUsed') : t('raise');
       controls = (
         <div className={`betbar${active ? '' : ' is-idle'}`}>
           <button type="button" className="btn btn--danger" disabled={!active} onClick={() => actions.bet('FOLD')}>{t('fold')}</button>

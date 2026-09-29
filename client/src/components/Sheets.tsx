@@ -1,24 +1,21 @@
 import { useState, type ReactNode } from 'react';
-import type { GameView, LogEntry, Player, Settings } from '../types';
+import type { CashOut, GameView, LogEntry, Player, Settings } from '../types';
 import { settle, stepLabel } from '../money';
 import { useI18n, type Lang } from '../i18n';
 
 interface SitProps {
   seat: number;
   initialName: string;
-  initialBuyIn: number;
-  minBuyIn: number;
-  maxBuyIn: number;
-  onConfirm: (name: string, buyIn: number) => void;
+  onConfirm: (name: string) => void;
   onCancel: () => void;
 }
 
-export function SitSheet({ seat, initialName, initialBuyIn, minBuyIn, maxBuyIn, onConfirm, onCancel }: SitProps) {
-  const { t, money: euro } = useI18n();
+// Everyone sits down at €0: no buy-in, the running score shows what you won or lost.
+export function SitSheet({ seat, initialName, onConfirm, onCancel }: SitProps) {
+  const { t } = useI18n();
   const [name, setName] = useState(initialName);
-  const [buyIn, setBuyIn] = useState(Math.min(maxBuyIn, Math.max(minBuyIn, initialBuyIn)));
   const valid = name.trim().length > 0;
-  const submit = () => valid && onConfirm(name.trim(), buyIn);
+  const submit = () => valid && onConfirm(name.trim());
 
   return (
     <div className="overlay" onClick={onCancel}>
@@ -45,30 +42,6 @@ export function SitSheet({ seat, initialName, initialBuyIn, minBuyIn, maxBuyIn, 
             onChange={e => setName(e.target.value)}
           />
         </label>
-
-        <div className="field">
-          <div className="field__row">
-            <span className="field__label">{t('buyIn')}</span>
-            <span className="field__value">{euro(buyIn)}</span>
-          </div>
-          <div className="chips-pick">
-            {[1000, 2000, 5000].filter(v => v >= minBuyIn && v <= maxBuyIn).map(v => (
-              <button key={v} type="button" className={`chip-pick${buyIn === v ? ' is-on' : ''}`} onClick={() => setBuyIn(v)}>
-                {euro(v)}
-              </button>
-            ))}
-          </div>
-          <input
-            type="range"
-            className="slider"
-            min={minBuyIn}
-            max={maxBuyIn}
-            step={500}
-            value={buyIn}
-            onChange={e => setBuyIn(Number(e.target.value))}
-            aria-label={t('buyIn')}
-          />
-        </div>
 
         <div className="duo">
           <button type="button" className="btn btn--ghost" onClick={onCancel}>{t('cancel')}</button>
@@ -130,7 +103,7 @@ export function RulesSheet({ view, onClose }: { view: GameView; onClose: () => v
           </ul>
           <p>Na výhru kasy treba farbu alebo trojicu, aj keď ostatní zložia.</p>
           <p><b>Remíza:</b> kasa ostáva. Ďalší víťaz musí prekonať remízové skóre — po remíze na Špici berie kasu prvý Špic. Dva Špice v jednej hre sú remíza.</p>
-          <p><b>Peňaženka:</b> nemáš dosť? Ťukni <b>Dobiť a dorovnať</b> (alebo zvýšiť) a chýbajúce peniaze idú z peňaženky — bankár dobíja automaticky. Priebežné skóre (+/−) je pod žetónmi a <b>Vyúčtovanie</b> (tlačidlo €) ukáže, kto komu platí.</p>
+          <p><b>Skóre:</b> každý si sadne s 0 € a hrá sa na dlh. Pri mene vidíš priebežné skóre (+/−) a <b>Vyúčtovanie</b> (tlačidlo €) ukáže, kto komu koľko platí. Kto odchádza skôr, vyrovná sa pri odchode a ostatní hrajú ďalej — jeho peniaze v neodohranej kase ostávajú v kase.</p>
           <p><b>Pokračovanie o kasu:</b> kto nedohral remízovú hru, dlhuje, čo zaplatili tí, čo dohrali (mínus to, čo sám vložil). Zaplatí pri prvom rozhodnutí ďalšej hry, alebo zloží. Bankár s dlhom môže zaplatiť a rozdať, alebo vynechať a stáť mimo, kým niekto nevyhrá kasu.</p>
           <p><b>Hostiteľ</b> (prvý, kto si sadol) môže medzi hrami v ⚙ meniť čas na ťah, vklad a zvýšenia.</p>
         </div>
@@ -149,7 +122,7 @@ export function RulesSheet({ view, onClose }: { view: GameView; onClose: () => v
           </ul>
           <p>You need a Flush or Trojica to take the pot, even if everyone else folds.</p>
           <p><b>Ties:</b> the pot stays. The next winner must beat the tied score — after a tie on Špic, the first Špic takes it. Two Špics in one hand are a tie.</p>
-          <p><b>Wallet:</b> short of chips? Tap <b>Top up &amp; call</b> (or raise) and the missing money comes from your wallet — the banker tops up automatically. Your running score (+/−) is under your chips, and <b>Settle up</b> (€ button) shows who pays whom at the end of the night.</p>
+          <p><b>Score:</b> everyone sits down at €0 and plays on credit. Each seat shows its running score (+/−), and <b>Settle up</b> (€ button) shows who pays whom at the end of the night. Leaving early? You settle as you leave and the others play on — your money in an unfinished pot stays in the pot.</p>
           <p><b>Playing on for a carried pot:</b> whoever didn't play the tied hand to the end owes what the finishers paid (minus what they put in themselves). You pay it at your first decision of the next hand, or fold. A banker who owes can pay and deal, or skip and sit out until the pot is won.</p>
           <p>The <b>host</b> (the first player to sit down) can change the turn timer, ante and raises under ⚙ between hands.</p>
         </div>
@@ -161,7 +134,7 @@ export function RulesSheet({ view, onClose }: { view: GameView; onClose: () => v
 export function SettleSheet({ view, onClose }: { view: GameView; onClose: () => void }) {
   const { t, money: euro, balance: balanceLabel } = useI18n();
   const rows = [
-    ...view.players.map(p => ({ name: p.name, balance: p.chips - p.bought, left: false })),
+    ...view.players.map(p => ({ name: p.name, balance: p.balance, left: false })),
     ...view.departed.map(d => ({ name: d.name, balance: d.balance, left: true })),
   ].sort((a, b) => b.balance - a.balance);
   const payments = settle(rows.map(r => ({ name: r.left ? `${r.name} (${t('leftTag')})` : r.name, balance: r.balance })));
@@ -267,6 +240,59 @@ export function SettingsSheet({ view, me, muted, onLang, onMuted, onSave, onClos
           <button type="button" className="btn btn--primary btn--wide" disabled={!canEdit || !changed}
             onClick={() => onSave(draft)}>
             {canEdit && !changed ? t('saved') : t('save')}
+          </button>
+        )}
+      </div>
+    </BottomSheet>
+  );
+}
+
+interface CashOutProps {
+  me: Player;
+  cashOut: CashOut;
+  inHand: boolean;
+  onSettled: () => void;
+  onLeaveUnsettled: () => void;
+  onClose: () => void;
+}
+
+// Leaving for good: settle your score with the players who stay, so they can play on.
+export function CashOutSheet({ me, cashOut, inHand, onSettled, onLeaveUnsettled, onClose }: CashOutProps) {
+  const { t, money: euro, balance } = useI18n();
+  const even = cashOut.payments.length === 0;
+  return (
+    <BottomSheet title={t('leaveTitle')} onClose={onClose}>
+      <div className="settle cashout">
+        <div className="cashout__score">
+          <span>{t('yourScore')}</span>
+          <b className={me.balance > 0 ? 'is-up' : me.balance < 0 ? 'is-down' : ''}>{balance(me.balance)}</b>
+        </div>
+        {inHand && <p className="settle__note">{t('foldNote')}</p>}
+        {even ? (
+          <p className="settle__note">{t('evenNote')}</p>
+        ) : (
+          <>
+            <div className="settle__label">{t('settleNow')}</div>
+            <ul className="settle__list">
+              {cashOut.payments.map(p => (
+                <li key={p.name}>
+                  <span>{p.amount > 0 ? t('payTo', { name: p.name }) : t('payFrom', { name: p.name })}</span>
+                  <b>{euro(Math.abs(p.amount))}</b>
+                </li>
+              ))}
+            </ul>
+            {cashOut.lost > 0 && cashOut.holder && (
+              <p className="settle__note">{t('lostNote', { amount: cashOut.lost, holder: cashOut.holder })}</p>
+            )}
+          </>
+        )}
+        <button type="button" className="btn btn--primary btn--wide" onClick={onSettled}>
+          {even ? t('justLeave') : t('settledLeave')}
+        </button>
+        {!even && (
+          <button type="button" className="btn btn--ghost btn--wide btn--stack" onClick={onLeaveUnsettled}>
+            {t('leaveUnsettled')}
+            <span className="btn__sub">{t('unsettledSub')}</span>
           </button>
         )}
       </div>

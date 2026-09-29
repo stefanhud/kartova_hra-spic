@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dock, type DockActions } from './components/Dock';
-import { LogSheet, RulesSheet, SettingsSheet, SettleSheet, SitSheet } from './components/Sheets';
+import { CashOutSheet, LogSheet, RulesSheet, SettingsSheet, SettleSheet, SitSheet } from './components/Sheets';
 import { Table, type SwapSelection } from './components/Table';
 import { useWakeLock } from './hooks';
 import { I18nContext, loadLang, makeI18n, saveLang, type Lang } from './i18n';
@@ -38,7 +38,7 @@ export default function App() {
   const [replaced, setReplaced] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
-  const [sheet, setSheet] = useState<'log' | 'rules' | 'settle' | 'settings' | null>(null);
+  const [sheet, setSheet] = useState<'log' | 'rules' | 'settle' | 'settings' | 'leave' | null>(null);
   const [lang, setLang] = useState<Lang>(loadLang);
   const [muted, setMutedState] = useState(isMuted);
   const i18n = useMemo(() => makeI18n(lang), [lang]);
@@ -83,7 +83,6 @@ export default function App() {
   }, [showToast, msg, t]);
 
   const view = snap?.view ?? null;
-  const buyIn = prefs.buyIn ?? view?.config.defaultBuyIn ?? 2000; // euro cents
   const me = view?.players.find(p => p.id === view.you) ?? null;
   const seated = !!me;
   const inRound = !!view && view.phase !== 'WAITING' && view.phase !== 'SHOWDOWN';
@@ -170,22 +169,23 @@ export default function App() {
     selectHand: i => select('hand', i),
   };
 
-  const leave = () => {
-    if (inRound && me && !me.isFolded && !window.confirm(t('confirmLeave'))) return;
-    socket.emit('leaveGame');
+  // Leaving for good: settle up (the others play on) or leave the score on the Settle up list.
+  const leave = (settled: boolean) => {
+    socket.emit(settled ? 'cashOut' : 'leaveGame');
     forgetSeat();
+    setSheet(null);
   };
 
   const onSeatTap = (seat: number) => {
-    if (me) socket.emit('joinGame', me.name, seat, buyIn); // move seats between hands
+    if (me) socket.emit('joinGame', me.name, seat); // move seats between hands
     else setSitSeat(seat);
   };
 
-  const confirmSit = (name: string, buyIn: number) => {
-    const next = { name, buyIn };
+  const confirmSit = (name: string) => {
+    const next = { name };
     savePrefs(next);
     setPrefs(next);
-    if (sitSeat !== null) socket.emit('joinGame', name, sitSeat, buyIn);
+    if (sitSeat !== null) socket.emit('joinGame', name, sitSeat);
     setSitSeat(null);
   };
 
@@ -250,7 +250,7 @@ export default function App() {
             aria-pressed={!muted}><Icon name={muted ? 'muted' : 'sound'} /></button>
           <button type="button" className="icon-btn" onClick={() => setSheet('settings')} aria-label={t('settingsTitle')}><Icon name="settings" /></button>
           <button type="button" className="icon-btn" onClick={() => setSheet('settle')} aria-label={t('settleUp')}><Icon name="settle" /></button>
-          {me && <button type="button" className="icon-btn icon-btn--danger" onClick={leave} aria-label={t('leaveTable')}><Icon name="leave" /></button>}
+          {me && <button type="button" className="icon-btn icon-btn--danger" onClick={() => setSheet('leave')} aria-label={t('leaveTable')}><Icon name="leave" /></button>}
         </div>
       </header>
 
@@ -279,9 +279,6 @@ export default function App() {
         <SitSheet
           seat={sitSeat}
           initialName={prefs.name}
-          initialBuyIn={buyIn}
-          minBuyIn={view.config.minBuyIn}
-          maxBuyIn={view.config.maxBuyIn}
           onConfirm={confirmSit}
           onCancel={() => setSitSeat(null)}
         />
@@ -289,6 +286,10 @@ export default function App() {
       {sheet === 'log' && <LogSheet log={view.log} onClose={() => setSheet(null)} />}
       {sheet === 'rules' && <RulesSheet view={view} onClose={() => setSheet(null)} />}
       {sheet === 'settle' && <SettleSheet view={view} onClose={() => setSheet(null)} />}
+      {sheet === 'leave' && me && view.cashOut && (
+        <CashOutSheet me={me} cashOut={view.cashOut} inHand={inRound && !me.isFolded}
+          onSettled={() => leave(true)} onLeaveUnsettled={() => leave(false)} onClose={() => setSheet(null)} />
+      )}
       {sheet === 'settings' && (
         <SettingsSheet view={view} me={me} muted={muted} onLang={changeLang} onMuted={changeMuted}
           onSave={saveSettings} onClose={() => setSheet(null)} />

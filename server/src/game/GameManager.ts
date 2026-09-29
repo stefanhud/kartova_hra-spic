@@ -1,7 +1,7 @@
 // server/src/game/GameManager.ts
 import { randomBytes } from 'crypto';
 import { Server, Socket } from 'socket.io';
-import { Card, HandType } from './types';
+import { Card, HandCode, HandType } from './types';
 import {
   CashOut, ClientView, GameState, Msg, MsgParam, Player, RoundResult, SETTING_OPTIONS, SwapOption, createInitialState,
 } from './GameState';
@@ -461,7 +461,7 @@ export class GameManager {
     s.result = null;
     s.gameWinner = null;
     s.talon = [];
-    s.minScoreToBeat = 0;
+    this.setBar(null);
     s.swappedPlayers = [];
     s.dealerIndex = dealer.seatIndex;
 
@@ -733,7 +733,7 @@ export class GameManager {
   private startTalonPhase() {
     const s = this.state;
     this.noTurn();
-    s.minScoreToBeat = 0;
+    this.setBar(null);
     s.swappedPlayers = [];
     s.currentBet = 0;
     for (const p of s.players) {
@@ -790,7 +790,7 @@ export class GameManager {
     player.isFaceUp = true;
     player.score = best.result.score;
     player.lastAction = { k: 'took' };
-    s.minScoreToBeat = best.result.score; // sets the bar
+    this.setBar(best.result);
     s.swappedPlayers.push(player.id);
     this.log('takesTalon', { name: player.name, hand: best.result.code });
     this.revealDealerAndStartSwaps(true); // a talon special is never a Bicykel
@@ -837,14 +837,14 @@ export class GameManager {
     this.promptNextSwapper(fromSeat);
   }
 
-  // If the player cannot end up beating the bar, show them a short "nothing to swap"
-  // notice and pass automatically.
+  // If the player cannot end up reaching the bar (a tie counts), show them a short
+  // "nothing to swap" notice and pass automatically.
   private beginSwapTurn(player: Player) {
     const s = this.state;
     s.turnIndex = player.seatIndex;
 
-    const current = HandEvaluator.evaluate(player.hand).score;
-    const stuck = current <= s.minScoreToBeat && this.swapOptionsFor(player).length === 0;
+    const current = HandEvaluator.evaluate(player.hand);
+    const stuck = !this.reachesBar(current) && this.swapOptionsFor(player).length === 0;
     if (!stuck) {
       this.armTurnTimer(player);
       return;
@@ -869,11 +869,29 @@ export class GameManager {
       for (let t = 0; t < s.talon.length; t++) {
         const temp = [...player.hand];
         temp[h] = s.talon[t];
-        const score = HandEvaluator.evaluate(temp).score;
-        if (score > s.minScoreToBeat) options.push({ h, t, score });
+        const result = HandEvaluator.evaluate(temp);
+        if (this.reachesBar(result)) options.push({ h, t, score: result.score });
       }
     }
     return options;
+  }
+
+  // A swap must make a Flush or Trojica that at least matches the bar: matching it is
+  // allowed and makes a tie (the pot then stays). Trojicas compare by rank, so 777 never
+  // matches a bar of 888, and 999 beats it.
+  private reachesBar(result: { score: number; tieBreak?: number }) {
+    return result.score > 0 && HandEvaluator.compare(result, this.bar()) >= 0;
+  }
+
+  private bar() {
+    return { score: this.state.minScoreToBeat, tieBreak: this.state.barTieBreak };
+  }
+
+  private setBar(result: { score: number; tieBreak?: number; code: HandCode } | null) {
+    const s = this.state;
+    s.minScoreToBeat = result?.score ?? 0;
+    s.barTieBreak = result?.tieBreak ?? 0;
+    s.barHand = result?.code ?? null;
   }
 
   private canSwapNow(player: Player | undefined): player is Player {
@@ -894,9 +912,8 @@ export class GameManager {
     temp[handIndex] = s.talon[talonIndex];
     const preview = HandEvaluator.evaluate(temp);
 
-    // A swap must produce a scoring hand that strictly beats the current bar.
-    if (preview.score <= s.minScoreToBeat) {
-      return this.error(socket, s.minScoreToBeat > 0 ? 'errSwapBeat' : 'errSwapMake', { score: preview.score, need: s.minScoreToBeat });
+    if (!this.reachesBar(preview)) {
+      return this.error(socket, s.minScoreToBeat > 0 ? 'errSwapBeat' : 'errSwapMake', { score: preview.code, need: s.barHand ?? undefined });
     }
 
     const fromHand = player.hand[handIndex];
@@ -904,7 +921,9 @@ export class GameManager {
     s.talon[talonIndex] = fromHand;
 
     const result = HandEvaluator.evaluate(player.hand);
-    if (result.score > s.minScoreToBeat) s.minScoreToBeat = result.score;
+    const vsBar = HandEvaluator.compare(result, this.bar());
+    const tie = vsBar === 0;
+    if (vsBar > 0) this.setBar(result);
     player.score = result.score;
     player.lastAction = { k: 'swap' };
     s.swappedPlayers.push(player.id);
@@ -915,7 +934,7 @@ export class GameManager {
       this.log('swapBicykel', { name: player.name });
     } else {
       player.specialStatus = undefined;
-      this.log('swapped', { name: player.name, score: result.score });
+      this.log('swapped', { name: player.name, score: result.code, tie });
     }
     this.afterSwapAction(player.seatIndex);
   }
@@ -1085,7 +1104,7 @@ export class GameManager {
     s.phase = 'WAITING';
     s.gameWinner = null;
     s.talon = [];
-    s.minScoreToBeat = 0;
+    this.setBar(null);
     s.swappedPlayers = [];
     s.currentBet = 0;
     this.noTurn();

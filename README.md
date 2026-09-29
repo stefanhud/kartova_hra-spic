@@ -26,7 +26,7 @@
 - Six-seat table built for phones first: you always sit at the bottom, with your hand and big thumb-sized buttons in the dock below the table
 - Portrait, landscape and desktop layouts
 - Crisp vector cards with a four-colour deck (♠ black, ♥ red, ♦ blue, ♣ green), so suits are easy to tell apart on a small screen
-- Talon swaps show which table cards beat the bar and the score you'd end up with, then ask you to confirm
+- Talon swaps show which table cards reach the bar and the score you'd end up with, then ask you to confirm
 - Countdown ring on the active player, vibration, a chime and a tab-title alert when it's your turn
 - Table sounds made in the browser (deal, chips, swap, win, tie), with a mute button in the top bar
 - Slovak and English: picks your phone's language and can be switched under ⚙, per phone
@@ -46,7 +46,7 @@
 2. When at least two players are seated, anyone at the table can tap **Deal cards**. Each player antes €0.50 and receives two cards.
 3. **First betting round.** Starting left of the banker (marked **D**), players check, call or fold. Only the **first player** (left of the banker) and the **last player** (right of the banker) may raise, by €0.50, €1 or €2. There is at most one raise and one re-raise per round. The banker never folds and calls everything automatically, playing blind.
 4. Each player still in the hand receives a third card, followed by a second betting round with the same rules.
-5. The server reveals a four-card talon. Starting left of the banker, each player may replace one card with a talon card. The new hand must beat the bar, which is the best hand swapped in so far; otherwise the player passes. If the talon holds a Flush or Trojica and the banker never looked at their cards, the banker may take it instead. **Look at cards** reveals the banker's hand to them but gives up this option (they still call everything).
+5. The server reveals a four-card talon. Starting left of the banker, each player may replace one card with a talon card. The new hand must at least match the bar, which is the best hand swapped in so far (matching it makes a tie); otherwise the player passes. If the talon holds a Flush or Trojica and the banker never looked at their cards, the banker may take it instead. **Look at cards** reveals the banker's hand to them but gives up this option (they still call everything).
 6. At showdown the best hand wins the pot. You need a Flush or Trojica to take it — even when everyone else folded.
 
 Tap **?** in the top bar for the rules, the ticker for the table log, and ⚙ for language, sound and table settings.

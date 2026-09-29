@@ -102,7 +102,7 @@ export function RulesSheet({ view, onClose }: { view: GameView; onClose: () => v
             <li><b>Bicykel</b> — tri farby bez páru: mŕtva ruka, automaticky zložené</li>
           </ul>
           <p>Na výhru kasy treba farbu alebo trojicu, aj keď ostatní zložia.</p>
-          <p><b>Remíza:</b> kasa ostáva. Ďalší víťaz musí prekonať remízové skóre — po remíze na Špici berie kasu prvý Špic. Dva Špice v jednej hre sú remíza.</p>
+          <p><b>Remíza:</b> kasa ostáva. Ďalší víťaz musí prekonať remízové skóre — po remíze na Špici berie kasu prvý Špic. Dva Špice v jednej hre sú remíza. Kým kasa ostáva, vymeniť (aj bankár zobrať talón) sa dá len na ruku, ktorá môže kasu vyhrať.</p>
           <p><b>Skóre:</b> každý si sadne s 0 € a hrá sa na dlh. Pri mene vidíš priebežné skóre (+/−) a <b>Vyúčtovanie</b> (tlačidlo €) ukáže, kto komu koľko platí. Kto odchádza skôr, vyrovná sa pri odchode a ostatní hrajú ďalej — jeho peniaze v neodohranej kase ostávajú v kase.</p>
           <p><b>Pokračovanie o kasu:</b> kto nedohral remízovú hru, dlhuje, čo zaplatili tí, čo dohrali (mínus to, čo sám vložil). Zaplatí pri prvom rozhodnutí ďalšej hry, alebo zloží. Bankár s dlhom môže zaplatiť a rozdať, alebo vynechať a stáť mimo, kým niekto nevyhrá kasu.</p>
           <p><b>Hostiteľ</b> (prvý, kto si sadol) môže medzi hrami v ⚙ meniť čas na ťah, vklad a zvýšenia.</p>
@@ -121,7 +121,7 @@ export function RulesSheet({ view, onClose }: { view: GameView; onClose: () => v
             <li><b>Bicykel</b> — three suits, no pair: dead hand, auto-fold</li>
           </ul>
           <p>You need a Flush or Trojica to take the pot, even if everyone else folds.</p>
-          <p><b>Ties:</b> the pot stays. The next winner must beat the tied score — after a tie on Špic, the first Špic takes it. Two Špics in one hand are a tie.</p>
+          <p><b>Ties:</b> the pot stays. The next winner must beat the tied score — after a tie on Špic, the first Špic takes it. Two Špics in one hand are a tie. While the pot is carried, you may only swap (and the banker may only take the talon) for a hand that can win it.</p>
           <p><b>Score:</b> everyone sits down at €0 and plays on credit. Each seat shows its running score (+/−), and <b>Settle up</b> (€ button) shows who pays whom at the end of the night. Leaving early? You settle as you leave and the others play on — your money in an unfinished pot stays in the pot.</p>
           <p><b>Playing on for a carried pot:</b> whoever didn't play the tied hand to the end owes what the finishers paid (minus what they put in themselves). You pay it at your first decision of the next hand, or fold. A banker who owes can pay and deal, or skip and sit out until the pot is won.</p>
           <p>The <b>host</b> (the first player to sit down) can change the turn timer, ante and raises under ⚙ between hands.</p>

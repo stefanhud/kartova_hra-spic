@@ -306,6 +306,45 @@ async function bankerTopsUp() {
   await h.close();
 }
 
+async function hostSettings() {
+  console.log('• only the host changes table settings, between hands, to the offered values');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 3, false, BUY_IN);
+  const [a, b, c] = bots;
+  const s = () => h.state().settings;
+  check(h.state().hostId === player(h, 0).id, 'the first player to sit down is the host');
+
+  b.emit('updateSettings', { turnSeconds: 30, ante: 100, raiseSteps: [100, 200, 500] });
+  await sleep(40);
+  check(s().ante === 50 && s().turnSeconds === 15, 'a non-host cannot change settings');
+
+  a.emit('updateSettings', { turnSeconds: 31, ante: 100, raiseSteps: [100, 200, 500] });
+  a.emit('updateSettings', { turnSeconds: 30, ante: 70, raiseSteps: [100, 200, 500] });
+  a.emit('updateSettings', { turnSeconds: 30, ante: 100, raiseSteps: [100, 200, 300] });
+  await sleep(40);
+  check(s().ante === 50 && s().turnSeconds === 15, 'values outside the offered options are refused');
+
+  a.emit('updateSettings', { turnSeconds: 30, ante: 100, raiseSteps: [100, 200, 500] });
+  await waitFor(() => s().ante === 100, 500, 'host settings applied');
+  check(s().turnSeconds === 30 && s().raiseSteps.join() === '100,200,500', 'the host changed timer, ante and raises');
+
+  await deal(h, bots, 0);
+  check(h.state().pot === 300, `the next hand uses the new ante (pot ${h.state().pot})`);
+  a.emit('updateSettings', { turnSeconds: 15, ante: 50, raiseSteps: [50, 100, 200] });
+  await sleep(40);
+  check(s().ante === 100, 'settings cannot change during a hand');
+  await refused(h, b, 'a raise step from the old settings', 'playerAction', 'RAISE', 50);
+  await act(h, b, 1, 'playerAction', 'RAISE', 500);
+  check(h.state().currentBet === 500, 'a raise step from the new settings is accepted');
+
+  a.emit('leaveGame');
+  await waitFor(() => h.state().hostId === player(h, 1)?.id, 1000, 'host passes on');
+  check(h.state().hostId === player(h, 1).id, 'when the host leaves, the longest-seated player takes over');
+  bots.forEach(x => x.disconnect());
+  void c;
+  await h.close();
+}
+
 (async () => {
   const started = Date.now();
   await tieChargesOutsiders();
@@ -318,6 +357,7 @@ async function bankerTopsUp() {
   await mustBeatTiedScore(29);
   await mustBeatTiedScore(30);
   await bankerTopsUp();
+  await hostSettings();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   if (failureCount()) {

@@ -28,20 +28,41 @@ export interface Player {
   hasActed?: boolean;
   sittingOut?: boolean;
   connected: boolean;
-  lastAction?: string;
-  handDesc?: string;
+  lastAction?: ActionTag;
+  handDesc?: HandCode;
 }
 
-export interface LogEntry {
+// Language-neutral messages: the client turns them into English or Slovak (see i18n.ts).
+export interface HandCode {
+  k: 'zlaty' | 'spic' | 'trojica' | 'flush' | 'none' | 'bicykel' | 'partial';
+  v?: number | string;
+}
+
+export interface ActionTag {
+  k: 'check' | 'call' | 'raise' | 'swap' | 'pass' | 'took' | 'fold' | 'bicykel';
+  a?: number;
+}
+
+export interface Msg {
+  key: string;
+  p?: Record<string, unknown>;
+}
+
+export interface LogEntry extends Msg {
   id: number;
-  text: string;
 }
 
 export interface RoundResult {
   winnerIds: string[];
   amount: number;
-  headline: string;
-  detail: string;
+  headline: Msg;
+  detail: Msg[];
+}
+
+export interface Settings {
+  turnSeconds: number;
+  ante: number;
+  raiseSteps: number[];
 }
 
 export interface SwapOption {
@@ -73,6 +94,7 @@ export interface GameView {
   spicTie: boolean;
   carryTotal: number;
   departed: { name: string; balance: number }[];
+  hostId: string | null;
   roundId: number;
   result: RoundResult | null;
   you: string | null;
@@ -82,6 +104,8 @@ export interface GameView {
   config: {
     ante: number;
     raiseSteps: number[];
+    turnSeconds: number;
+    options: { turnSeconds: number[]; ante: number[]; raiseSteps: number[][] };
     maxRaises: number;
     minBuyIn: number;
     maxBuyIn: number;

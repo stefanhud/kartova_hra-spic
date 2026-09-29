@@ -1768,6 +1768,35 @@ button.card {
   color: var(--muted);
 }
 
+.settings {
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.settings .field {
+  margin-top: 6px;
+}
+
+.settings .chip-pick {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.settings .chip-pick:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.settings .chip-pick.is-on:disabled {
+  opacity: 0.85;
+}
+
+.settings .btn {
+  margin-top: 10px;
+}
+
 .settle__note {
   margin: 8px 0 0;
   padding: 10px 12px;

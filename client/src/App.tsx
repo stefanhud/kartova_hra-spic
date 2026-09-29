@@ -1,22 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dock, type DockActions } from './components/Dock';
-import { LogSheet, RulesSheet, SettleSheet, SitSheet } from './components/Sheets';
+import { LogSheet, RulesSheet, SettingsSheet, SettleSheet, SitSheet } from './components/Sheets';
 import { Table, type SwapSelection } from './components/Table';
 import { useWakeLock } from './hooks';
-import { euro } from './money';
+import { I18nContext, loadLang, makeI18n, saveLang, type Lang } from './i18n';
 import { forgetSeat, loadPrefs, rememberSeat, savePrefs, socket } from './socket';
-import type { GameView, Snapshot } from './types';
+import { isMuted, play, setMuted } from './sounds';
+import type { GameView, Msg, Settings, Snapshot } from './types';
 import { isBetting } from './types';
 
 type Toast = { id: number; text: string; tone: 'error' | 'info' };
 const NO_SELECTION: SwapSelection = { nonce: -1, hand: null, talon: null };
 
-function Icon({ name }: { name: 'log' | 'help' | 'leave' | 'settle' }) {
-  const paths = {
+type IconName = 'help' | 'leave' | 'settle' | 'settings' | 'sound' | 'muted';
+
+function Icon({ name }: { name: IconName }) {
+  const paths: Record<IconName, string> = {
     settle: 'M17 7.5A6 6 0 1 0 17 16.5M4 10.5h9M4 13.5h9',
-    log: 'M4 6h16M4 12h16M4 18h10',
     help: 'M9.1 9a3 3 0 1 1 4.2 2.7c-.8.4-1.3 1.1-1.3 2V14M12 17.5v.01',
     leave: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11',
+    settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+    sound: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
+    muted: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4zM16 9.5l5 5M21 9.5l-5 5',
   };
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
@@ -33,7 +38,11 @@ export default function App() {
   const [replaced, setReplaced] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
-  const [sheet, setSheet] = useState<'log' | 'rules' | 'settle' | null>(null);
+  const [sheet, setSheet] = useState<'log' | 'rules' | 'settle' | 'settings' | null>(null);
+  const [lang, setLang] = useState<Lang>(loadLang);
+  const [muted, setMutedState] = useState(isMuted);
+  const i18n = useMemo(() => makeI18n(lang), [lang]);
+  const { t, msg } = i18n;
   const [selection, setSelection] = useState<SwapSelection>(NO_SELECTION);
   const [prefs, setPrefs] = useState(loadPrefs);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -53,8 +62,8 @@ export default function App() {
       setReplaced(false);
     };
     const onDisconnect = () => setConnected(false);
-    const onError = (msg: string) => showToast(msg, 'error');
-    const onNoSwap = () => showToast('No swap can beat the bar — you pass.', 'info', 2600);
+    const onError = (err: Msg | string) => showToast(typeof err === 'string' ? err : msg(err), 'error');
+    const onNoSwap = () => showToast(t('noSwapToast'), 'info', 2600);
     const onReplaced = () => setReplaced(true);
 
     socket.on('gameState', onState);
@@ -71,7 +80,7 @@ export default function App() {
       socket.off('noSwap', onNoSwap);
       socket.off('sessionReplaced', onReplaced);
     };
-  }, [showToast]);
+  }, [showToast, msg, t]);
 
   const view = snap?.view ?? null;
   const buyIn = prefs.buyIn ?? view?.config.defaultBuyIn ?? 2000; // euro cents
@@ -94,9 +103,34 @@ export default function App() {
       document.title = 'ŠPIC';
       return;
     }
-    document.title = '● Your turn — ŠPIC';
+    document.title = t('titleTurn');
     navigator.vibrate?.(60);
-  }, [myTurnNonce]);
+    play('turn');
+  }, [myTurnNonce, t]);
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
+  // Table sounds, worked out from what changed since the last update.
+  const prevView = useRef<GameView | null>(null);
+  useEffect(() => {
+    const prev = prevView.current;
+    prevView.current = view;
+    if (!view || !prev) return;
+    if (view.phase === 'SHOWDOWN' && prev.phase !== 'SHOWDOWN') {
+      const winners = view.result?.winnerIds ?? [];
+      play(view.you && winners.includes(view.you) ? 'bigWin' : winners.length ? 'win' : 'tie');
+    } else if ((view.roundId !== prev.roundId && view.phase !== 'WAITING')
+      || (view.phase === 'BETTING_2' && prev.phase === 'BETTING_1')
+      || (view.talon.length > 0 && prev.talon.length === 0)) {
+      play('deal');
+    } else if (view.swappedPlayers.length > prev.swappedPlayers.length) {
+      play('swap');
+    } else if (view.pot > prev.pot && view.roundId === prev.roundId) {
+      play('chip');
+    }
+  }, [view]);
 
   // --- actions ---
   const select = useCallback((kind: 'hand' | 'talon', index: number) => {
@@ -110,12 +144,11 @@ export default function App() {
       return;
     }
     if (!valid) {
-      const bar = view.minScoreToBeat > 0 ? `beat ${view.minScoreToBeat}` : 'make a Flush or Trojica';
-      showToast(other === null ? `That card can't ${bar} with any swap.` : `That swap can't ${bar}.`, 'info', 2400);
+      showToast(t(other === null ? 'cardCant' : 'swapCant', { need: view.minScoreToBeat }), 'info', 2400);
       return;
     }
     setSelection({ ...cur, [kind]: index });
-  }, [view, swapping, selection, showToast]);
+  }, [view, swapping, selection, showToast, t]);
 
   const clearSelection = useCallback(() => setSelection(NO_SELECTION), []);
 
@@ -138,7 +171,7 @@ export default function App() {
   };
 
   const leave = () => {
-    if (inRound && me && !me.isFolded && !window.confirm('Leave the table? You will fold this hand.')) return;
+    if (inRound && me && !me.isFolded && !window.confirm(t('confirmLeave'))) return;
     socket.emit('leaveGame');
     forgetSeat();
   };
@@ -176,33 +209,48 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [view, myClock]);
 
+  const changeLang = (next: Lang) => {
+    saveLang(next);
+    setLang(next);
+  };
+
+  const changeMuted = (next: boolean) => {
+    setMuted(next);
+    setMutedState(next);
+  };
+
+  const saveSettings = (settings: Settings) => socket.emit('updateSettings', settings);
+
   if (!view) {
     return (
       <div className="splash">
         <div className="splash__logo">ŠPIC</div>
-        <div className="splash__text">{connected ? 'Loading table…' : 'Connecting to the table…'}</div>
+        <div className="splash__text">{connected ? t('loading') : t('connecting')}</div>
         <div className="spinner" aria-hidden="true" />
       </div>
     );
   }
 
-  const lastLog = view.log[view.log.length - 1]?.text ?? '';
+  const lastLog = msg(view.log[view.log.length - 1]);
 
   return (
+    <I18nContext.Provider value={i18n}>
     <div className={`app${connected ? '' : ' is-offline'}`}>
       <header className="topbar">
         <div className="brand">
           <span className="brand__name">ŠPIC</span>
-          <span className="brand__meta">ante {euro(view.config.ante)}</span>
+          <span className="brand__meta">{t('anteShort', { amount: view.config.ante })}</span>
         </div>
-        <button type="button" className="ticker" onClick={() => setSheet('log')} aria-label="Open table log">
+        <button type="button" className="ticker" onClick={() => setSheet('log')} aria-label={t('openLog')}>
           <span className="ticker__text" key={view.log[view.log.length - 1]?.id}>{lastLog}</span>
         </button>
         <div className="topbar__actions">
-          <button type="button" className="icon-btn" onClick={() => setSheet('rules')} aria-label="How to play"><Icon name="help" /></button>
-          <button type="button" className="icon-btn" onClick={() => setSheet('settle')} aria-label="Settle up"><Icon name="settle" /></button>
-          <button type="button" className="icon-btn" onClick={() => setSheet('log')} aria-label="Table log"><Icon name="log" /></button>
-          {me && <button type="button" className="icon-btn icon-btn--danger" onClick={leave} aria-label="Leave table"><Icon name="leave" /></button>}
+          <button type="button" className="icon-btn" onClick={() => setSheet('rules')} aria-label={t('howToPlay')}><Icon name="help" /></button>
+          <button type="button" className="icon-btn" onClick={() => changeMuted(!muted)} aria-label={muted ? t('soundOff') : t('soundOn')}
+            aria-pressed={!muted}><Icon name={muted ? 'muted' : 'sound'} /></button>
+          <button type="button" className="icon-btn" onClick={() => setSheet('settings')} aria-label={t('settingsTitle')}><Icon name="settings" /></button>
+          <button type="button" className="icon-btn" onClick={() => setSheet('settle')} aria-label={t('settleUp')}><Icon name="settle" /></button>
+          {me && <button type="button" className="icon-btn icon-btn--danger" onClick={leave} aria-label={t('leaveTable')}><Icon name="leave" /></button>}
         </div>
       </header>
 
@@ -225,7 +273,7 @@ export default function App() {
       />
 
       {toast && <div className={`toast tone-${toast.tone}`} key={toast.id} role="alert">{toast.text}</div>}
-      {!connected && <div className="netbanner">Connection lost — reconnecting…</div>}
+      {!connected && <div className="netbanner">{t('connLost')}</div>}
 
       {sitSeat !== null && (
         <SitSheet
@@ -239,18 +287,23 @@ export default function App() {
         />
       )}
       {sheet === 'log' && <LogSheet log={view.log} onClose={() => setSheet(null)} />}
-      {sheet === 'rules' && <RulesSheet onClose={() => setSheet(null)} />}
+      {sheet === 'rules' && <RulesSheet view={view} onClose={() => setSheet(null)} />}
       {sheet === 'settle' && <SettleSheet view={view} onClose={() => setSheet(null)} />}
+      {sheet === 'settings' && (
+        <SettingsSheet view={view} me={me} muted={muted} onLang={changeLang} onMuted={changeMuted}
+          onSave={saveSettings} onClose={() => setSheet(null)} />
+      )}
 
       {replaced && (
         <div className="overlay">
           <div className="sheet sheet--center">
-            <div className="sheet__title">Open in another tab</div>
-            <p className="sheet__text">Your seat is being played from another tab or window.</p>
-            <button type="button" className="btn btn--primary btn--wide" onClick={() => socket.connect()}>Play here instead</button>
+            <div className="sheet__title">{t('otherTab')}</div>
+            <p className="sheet__text">{t('otherTabText')}</p>
+            <button type="button" className="btn btn--primary btn--wide" onClick={() => socket.connect()}>{t('playHere')}</button>
           </div>
         </div>
       )}
     </div>
+    </I18nContext.Provider>
   );
 }

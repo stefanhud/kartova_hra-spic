@@ -19,13 +19,13 @@ export class HandEvaluator {
 
     // 1. CHECK FOR ZLATÝ ŠPIC (3 Aces)
     if (cards.every(c => c.rank === 'A')) {
-      return { score: 33, type: HandType.ZLATY_SPIC, description: 'Zlatý špic', isFlush: false };
+      return { score: 33, type: HandType.ZLATY_SPIC, description: 'Zlatý špic', code: { k: 'zlaty' }, isFlush: false };
     }
 
     // 2. CHECK FOR TROJICA (3 of a kind)
     const firstRank = cards[0].rank;
     if (cards.every(c => c.rank === firstRank)) {
-      return { score: 30.5, type: HandType.TROJICA, description: `Trojica ${firstRank}`, isFlush: false, tieBreak: RANK_ORDER[firstRank] };
+      return { score: 30.5, type: HandType.TROJICA, description: `Trojica ${firstRank}`, code: { k: 'trojica', v: firstRank }, isFlush: false, tieBreak: RANK_ORDER[firstRank] };
     }
 
    // 3. CHECK FOR BICYKEL
@@ -51,7 +51,7 @@ export class HandEvaluator {
     // - A pair is NOT dead: swapping the odd card for a matching rank from the table
     //   makes a Trojica (30.5), e.g. K♥ K♦ 9♠ + a King => KKK.
     if (suitsPresent === 3 && !hasPair) {
-      return { score: 0, type: HandType.BICYKEL, description: 'Bicykel', isFlush: false };
+      return { score: 0, type: HandType.BICYKEL, description: 'Bicykel', code: { k: 'bicykel' }, isFlush: false };
     }
 
     // 4. CALCULATE SCORE
@@ -78,16 +78,17 @@ export class HandEvaluator {
       score: maxScore,
       type: maxScore === 31 ? HandType.SPIC : HandType.NORMAL,
       description: maxScore === 31 ? 'Špic' : (maxScore > 0 ? `Flush ${maxScore}` : 'No flush'),
+      code: maxScore === 31 ? { k: 'spic' } : maxScore > 0 ? { k: 'flush', v: maxScore } : { k: 'none' },
       isFlush: isFlush
     };
   }
 
   private static calculateBestSuitSum(cards: Card[]): ExtendedHandResult {
-    if (cards.length === 0) return { score: 0, type: HandType.NORMAL, description: 'Empty' };
+    if (cards.length === 0) return { score: 0, type: HandType.NORMAL, description: 'Empty', code: { k: 'none' } };
     const suitSums: Record<string, number> = { H: 0, D: 0, C: 0, S: 0 };
     cards.forEach(c => suitSums[c.suit] += c.value);
     const max = Math.max(...Object.values(suitSums));
-    return { score: max, type: HandType.NORMAL, description: `${max} so far` };
+    return { score: max, type: HandType.NORMAL, description: `${max} so far`, code: { k: 'partial', v: max } };
   }
 
   static getBestSubset(cards: Card[]): { indices: number[], result: ExtendedHandResult } | null {

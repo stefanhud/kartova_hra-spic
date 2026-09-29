@@ -51,15 +51,20 @@ export interface Harness {
 
 // How often each rule/event came up across all tables (printed at the end).
 export const coverage: Record<string, number> = {};
-export const COVERAGE_PATTERNS: [string, RegExp][] = [
-  ['raise', /raised to/], ['re-raise', /re-raised to/], ['fold', /folded|— fold/],
-  ['timeout', /ran out of time/], ['banker look', /looked at their cards/], ['banker call', /\(banker\)/],
-  ['bicykel fold', /Bicykel/], ["banker's option", /Banker's option/], ['banker takes talon', /takes the talon/],
-  ['swap', /swapped/], ['pass', /passes\./], ['auto-pass', /can't improve/], ['win', /wins €/],
-  ['pot stays', /pot stays|Pot stays/], ['escalation miss', /needed more than/], ['survivor proves hand', /prove a hand/],
-  ['debt charged', /To play on/], ['debt paid', /owed/], ['dealer pays', /pays .* owed and deals/],
-  ['dealer skips', /skips dealing/], ['disconnect', /lost connection/], ['reconnect', /is back/],
-  ['removed offline', /was removed/], ['top-up', /tops up/], ['late join', /next hand/],
+type Entry = { key: string; p?: Record<string, any> };
+const is = (...keys: string[]) => (e: Entry) => keys.includes(e.key);
+export const COVERAGE_PATTERNS: [string, (e: Entry) => boolean][] = [
+  ['raise', is('raised')], ['re-raise', is('reraised')], ['fold', is('folded', 'foldTimeout')],
+  ['timeout', e => !!e.p?.timedOut || /Timeout$/.test(e.key)], ['banker look', is('looked')],
+  ['banker call', e => is('checks', 'calls')(e) && !!e.p?.banker],
+  ['bicykel fold', is('bicykel', 'bankerBicykel', 'swapBicykel')], ["banker's option", is('bankerOption')],
+  ['banker takes talon', is('takesTalon')], ['swap', is('swapped')], ['pass', is('passes')],
+  ['auto-pass', is('cantImprove')], ['win', is('wins', 'winsFold')], ['pot stays', is('potStays')],
+  ['escalation miss', is('neededMore')], ['survivor proves hand', is('proveHand')], ['debt charged', is('owing')],
+  ['debt paid', e => is('checks', 'calls', 'raised', 'reraised')(e) && (e.p?.debt ?? 0) > 0],
+  ['dealer pays', is('paysAndDeals')], ['dealer skips', is('skipsDeal', 'skipsDealTimeout')],
+  ['disconnect', is('lostConn')], ['reconnect', is('back')], ['removed offline', is('removed')],
+  ['top-up', is('topUp')], ['late join', e => e.key === 'satDown' && !!e.p?.late],
 ];
 
 export async function startServer(timings: Timings = FAST): Promise<Harness> {
@@ -135,7 +140,7 @@ export async function startServer(timings: Timings = FAST): Promise<Harness> {
     for (const entry of s.log) {
       if (entry.id <= lastLogId) continue;
       lastLogId = entry.id;
-      for (const [k, re] of COVERAGE_PATTERNS) if (re.test(entry.text)) coverage[k] = (coverage[k] ?? 0) + 1;
+      for (const [k, re] of COVERAGE_PATTERNS) if (re(entry)) coverage[k] = (coverage[k] ?? 0) + 1;
     }
     if (s.phase === 'SHOWDOWN' && lastPhase !== 'SHOWDOWN') showdowns++;
     lastPhase = s.phase;

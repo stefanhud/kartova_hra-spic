@@ -1,6 +1,6 @@
 import { useRef, type CSSProperties } from 'react';
 import { useElementSize } from '../hooks';
-import { euro } from '../money';
+import { useI18n, type I18n } from '../i18n';
 import type { GameView, Player } from '../types';
 import { PlayingCard } from './PlayingCard';
 import { Seat, type TurnTimer } from './Seat';
@@ -20,19 +20,20 @@ interface Props {
   onSeatTap: (seat: number) => void;
 }
 
-function phaseCaption(v: GameView) {
+function phaseCaption(v: GameView, t: I18n['t']) {
   switch (v.phase) {
-    case 'WAITING': return v.players.length < 2 ? 'Waiting for players' : 'Ready to deal';
-    case 'DEALER_CHOICE': return 'Pay or skip the deal';
-    case 'BETTING_1': return v.currentBet > 0 ? `Betting · round 1 · ${euro(v.currentBet)} bet` : 'Betting · round 1';
-    case 'BETTING_2': return v.currentBet > 0 ? `Betting · round 2 · ${euro(v.currentBet)} bet` : 'Betting · round 2';
-    case 'DEALER_SPECIAL': return "Banker's option";
-    case 'TALON_SWAP': return 'Talon swap';
-    case 'SHOWDOWN': return 'Showdown';
+    case 'WAITING': return v.players.length < 2 ? t('capWaitPlayers') : t('capReady');
+    case 'DEALER_CHOICE': return t('capChoice');
+    case 'BETTING_1': return t('capBet', { n: 1, bet: v.currentBet });
+    case 'BETTING_2': return t('capBet', { n: 2, bet: v.currentBet });
+    case 'DEALER_SPECIAL': return t('capOption');
+    case 'TALON_SWAP': return t('capSwap');
+    case 'SHOWDOWN': return t('capShowdown');
   }
 }
 
 export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: Props) {
+  const { t, msg, money: euro } = useI18n();
   const stageRef = useRef<HTMLDivElement>(null);
   const { w, h } = useElementSize(stageRef);
   const shape = h > w * 1.08 ? 'tall' : 'wide';
@@ -65,7 +66,7 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
   };
 
   const barPill = (view.phase === 'TALON_SWAP' || view.phase === 'DEALER_SPECIAL')
-    ? (view.minScoreToBeat > 0 ? `Bar to beat · ${view.minScoreToBeat}` : 'Bar · Flush or Trojica')
+    ? (view.minScoreToBeat > 0 ? t('barBeat', { n: view.minScoreToBeat }) : t('barQualify'))
     : null;
 
   return (
@@ -79,19 +80,19 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
           <div className={`result${view.result.winnerIds.length ? ' is-win' : ''}`} role="status">
             <div className="result__headline">
               <span className="result__icon" aria-hidden="true">{view.result.winnerIds.length ? '🏆' : '↻'}</span>
-              {view.result.headline}
+              {msg(view.result.headline)}
             </div>
-            <div className="result__detail">{view.result.detail}</div>
+            <div className="result__detail">{view.result.detail.map(msg).join(' · ')}</div>
           </div>
         ) : (
           <>
             <div className={`pot${view.pot > 0 ? '' : ' is-empty'}`} key={`pot-${view.pot}`}>
-              <span className="pot__label">Pot</span>
+              <span className="pot__label">{t('pot')}</span>
               <span className="pot__amount">{euro(view.pot)}</span>
             </div>
             {view.potThreshold > 0 && (
               <div className="pill tone-gold">
-                {view.spicTie ? 'First Špic takes the pot' : `Win needs more than ${view.potThreshold}`}
+                {view.spicTie ? t('firstSpic') : t('winNeeds', { n: view.potThreshold })}
               </div>
             )}
           </>
@@ -114,7 +115,7 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
             })}
           </div>
         ) : (
-          <div className="caption">{phaseCaption(view)}</div>
+          <div className="caption">{phaseCaption(view, t)}</div>
         )}
 
         {barPill && <div className="pill tone-blue">{barPill}</div>}
@@ -138,10 +139,10 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
               className={`seat-empty sp${pos}`}
               onClick={canSit ? () => onSeatTap(seat) : undefined}
               disabled={!canSit}
-              aria-label={me ? `Move to seat ${seat + 1}` : `Sit at seat ${seat + 1}`}
+              aria-label={me ? t('moveSeat', { n: seat + 1 }) : t('sitSeat', { n: seat + 1 })}
             >
               <span className="seat-empty__ring">+</span>
-              <span className="seat-empty__label">{me ? (canSit ? 'Move' : '') : 'Sit'}</span>
+              <span className="seat-empty__label">{me ? (canSit ? t('move') : '') : t('sit')}</span>
             </button>
           );
         }

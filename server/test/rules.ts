@@ -16,6 +16,15 @@ async function act(h: Harness, bot: Bot, seat: number, event: string, ...args: u
   await waitFor(() => h.state().turnNonce !== nonce || h.state().phase === 'SHOWDOWN', 1000, `${bot.name} ${event} ${args.join(' ')} accepted`);
 }
 
+// Keep your hand in the talon round. Players whose hand can't count (no swap reaches the bar
+// or could win a carried pot) are passed automatically, so only pass if actually asked.
+async function pass(h: Harness, bot: Bot, seat: number) {
+  const id = player(h, seat).id;
+  await waitFor(() => h.state().swappedPlayers.includes(id) || h.state().phase === 'SHOWDOWN'
+    || (h.state().turnIndex === seat && h.state().turnDeadline > 0), 3000, `seat ${seat} keeps their hand`);
+  if (h.state().turnIndex === seat && h.state().turnDeadline > 0) await act(h, bot, seat, 'passTurn');
+}
+
 // Send an action that must be refused: nothing may change.
 async function refused(h: Harness, bot: Bot, what: string, event: string, ...args: unknown[]) {
   const s = h.state();
@@ -55,8 +64,8 @@ async function playTieAt29(h: Harness, bots: Bot[]) {
   await act(h, d, 3, 'playerAction', 'FOLD');
   await act(h, b, 1, 'playerAction', 'RAISE', 100); // round 2 (banker called automatically)
   await act(h, c, 2, 'playerAction', 'FOLD');
-  await act(h, b, 1, 'passTurn');
-  await act(h, bots[0], 0, 'passTurn');
+  await pass(h, b, 1);
+  await pass(h, bots[0], 0);
   await showdown(h);
 }
 
@@ -144,8 +153,8 @@ async function spicTieThenFirstSpicWins() {
   await act(h, b, 1, 'playerAction', 'CALL');
   await act(h, c, 2, 'playerAction', 'CALL');
   await act(h, b, 1, 'playerAction', 'CALL');
-  await act(h, b, 1, 'passTurn');
-  await act(h, a, 0, 'passTurn');
+  await pass(h, b, 1);
+  await pass(h, a, 0);
   await showdown(h);
   let s = h.state();
   check(s.result?.winnerIds.length === 0 && s.spicTie && s.potThreshold === 31, 'two Špics in one hand are a tie');
@@ -160,9 +169,9 @@ async function spicTieThenFirstSpicWins() {
   await act(h, a, 0, 'playerAction', 'CALL');
   await act(h, c, 2, 'playerAction', 'CALL');
   await act(h, a, 0, 'playerAction', 'CALL');
-  await act(h, c, 2, 'passTurn');
-  await act(h, a, 0, 'passTurn');
-  await act(h, b, 1, 'passTurn');
+  await pass(h, c, 2);
+  await pass(h, a, 0);
+  await pass(h, b, 1);
   await showdown(h);
   s = h.state();
   check(s.gameWinner === player(h, 0).id, 'A (first Špic after the banker) wins');
@@ -259,7 +268,7 @@ async function mustBeatTiedScore(score: 29 | 30) {
   await act(h, d, 3, 'playerAction', 'FOLD');
   await act(h, a, 0, 'playerAction', 'CALL');
   await act(h, a, 0, 'playerAction', 'CALL');
-  await act(h, a, 0, 'passTurn');
+  await pass(h, a, 0);
   await showdown(h);
 
   const s = h.state();
@@ -330,6 +339,73 @@ async function trojicaRanks() {
   await showdown(h);
   const s = h.state();
   check(s.result?.winnerIds.length === 1 && s.gameWinner === player(h, 0).id, 'Trojica 9 beats Trojica 8 at the showdown (no tie)');
+  bots.forEach(x => x.disconnect());
+  await h.close();
+}
+
+// While a pot is carried, a swap (or the banker's talon option) must make a hand that can win
+// it: after a tie at 29, a swap into Flush 25 would only take a card somebody else may need.
+async function carriedPotSwaps() {
+  console.log('• with a carried pot, only swaps that can win it are allowed');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 4, false);
+  const [a, b, c, d] = bots;
+  await playTieAt29(h, bots);
+  check(h.state().potThreshold === 29, 'the pot is carried, the next winner needs more than 29');
+
+  // B banks. The talon holds S9 S10 SJ = Flush 29: not enough to win, so no banker's option.
+  await deal(h, bots, 1, [
+    'S7', 'S8', /* A */ 'DA', 'D9', /* B (banker) */ 'C7', 'H7', /* C */ 'C8', 'H8', /* D */
+    'HQ', 'CK', // third cards (A, B)
+    'S9', 'S10', 'SJ', 'D10', // talon
+  ]);
+  await act(h, c, 2, 'playerAction', 'FOLD');
+  await act(h, d, 3, 'playerAction', 'FOLD');
+  await act(h, a, 0, 'playerAction', 'CALL');
+  await act(h, a, 0, 'playerAction', 'CALL');
+  await waitFor(() => h.state().phase === 'TALON_SWAP' && h.state().turnIndex === 1 && h.state().turnDeadline > 0, 3000, "the banker's swap turn");
+  const log = h.state().log;
+  check(!log.some(e => e.key === 'bankerOption'), 'no banker option for a talon Flush 29 that cannot win the pot');
+  // A could make Flush 25 with any spade, but that can't win: passed automatically.
+  check(log.some(e => e.key === 'cantImprove' && e.p?.name === 'Bot0'), 'A cannot swap into Flush 25');
+  check(!player(h, 0).hand.every(x => x.suit === 'S'), 'A kept their hand');
+  // The banker can make Flush 30 (CK <-> D10), which wins.
+  await sleep(40);
+  const opts = b.view?.swapOptions ?? [];
+  check(opts.length > 0 && opts.every(o => o.score > 29), `the banker is only offered winning swaps (${JSON.stringify(opts)})`);
+  b.emit('swapCard', 2, 0); // CK <-> S9 would be no flush: refused
+  await sleep(40);
+  check(player(h, 1).hand[2].rank === 'K', 'a swap that cannot win is refused');
+  await act(h, b, 1, 'swapCard', 2, 3);
+  await showdown(h);
+  check(h.state().gameWinner === player(h, 1).id && h.state().pot === 0, 'Flush 30 wins the carried pot');
+  bots.forEach(x => x.disconnect());
+  await h.close();
+}
+
+// While a pot is carried, a tie with the bar doesn't count: a swap has to beat it.
+async function carriedPotNoTieSwaps() {
+  console.log('• with a carried pot, a swap has to beat the bar, not just match it');
+  const h = await startServer(SLOW_TURNS);
+  const bots = await seatBots(h, 4, false);
+  const [a, b, c, d] = bots;
+  await playTieAt29(h, bots);
+  await deal(h, bots, 1, [
+    'DA', 'D9', /* A */ 'HA', 'H9', /* B (banker) */ 'C8', 'H7', /* C */ 'S7', 'H8', /* D */
+    'CK', 'SK', // third cards (A, B)
+    'D10', 'H10', 'C7', 'S8', // talon
+  ]);
+  await act(h, c, 2, 'playerAction', 'FOLD');
+  await act(h, d, 3, 'playerAction', 'FOLD');
+  await act(h, a, 0, 'playerAction', 'CALL');
+  await act(h, a, 0, 'playerAction', 'CALL');
+  await act(h, a, 0, 'swapCard', 2, 0); // CK <-> D10: Flush 30, the bar
+  // The banker could only tie at 30 (SK <-> H10): not allowed, passed automatically.
+  await showdown(h);
+  check(h.state().log.some(e => e.key === 'cantImprove' && e.p?.name === 'Bot1'), 'the banker cannot swap to tie the bar at 30');
+  check(!h.state().log.some(e => e.key === 'swapped' && e.p?.name === 'Bot1'), 'the banker did not swap');
+  check(h.state().gameWinner === player(h, 0).id, 'A wins the carried pot with 30');
+  void b;
   bots.forEach(x => x.disconnect());
   await h.close();
 }
@@ -457,6 +533,8 @@ async function hostSettings() {
   await cashOut();
   await swapToTie();
   await trojicaRanks();
+  await carriedPotSwaps();
+  await carriedPotNoTieSwaps();
   await hostSettings();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);

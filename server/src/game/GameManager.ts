@@ -750,7 +750,8 @@ export class GameManager {
 
     const dealer = this.playerAt(s.dealerIndex);
     const best = HandEvaluator.getBestSubset(s.talon);
-    const isSpecial = !!best && (
+    // Only a hand that could take the pot: after a tie, taking a lower one isn't allowed.
+    const isSpecial = !!best && this.canWinPot(best.result.score) && (
       best.result.type === HandType.TROJICA ||
       best.result.type === HandType.ZLATY_SPIC ||
       !!best.result.isFlush
@@ -879,8 +880,21 @@ export class GameManager {
   // A swap must make a Flush or Trojica that at least matches the bar: matching it is
   // allowed and makes a tie (the pot then stays). Trojicas compare by rank, so 777 never
   // matches a bar of 888, and 999 beats it.
+  // While a pot is carried, the hand must also be able to win it: more than the tied score,
+  // or a Špic after a tie on Špic. A swap into a hand that can't win would only take a card
+  // somebody else may need.
+  // Once the pot has stayed, matching the bar is pointless (the pot is already tied), so a
+  // swap then has to beat it outright.
   private reachesBar(result: { score: number; tieBreak?: number }) {
-    return result.score > 0 && HandEvaluator.compare(result, this.bar()) >= 0;
+    const vsBar = HandEvaluator.compare(result, this.bar());
+    const carried = this.state.potThreshold > 0;
+    return result.score > 0 && (carried ? vsBar > 0 : vsBar >= 0) && this.canWinPot(result.score);
+  }
+
+  private canWinPot(score: number) {
+    const s = this.state;
+    if (s.potThreshold === 0) return true;
+    return s.spicTie ? score >= 31 : score > s.potThreshold;
   }
 
   private bar() {
@@ -913,6 +927,12 @@ export class GameManager {
     const preview = HandEvaluator.evaluate(temp);
 
     if (!this.reachesBar(preview)) {
+      if (preview.score > 0 && !this.canWinPot(preview.score)) {
+        return this.error(socket, 'errSwapPot', { score: preview.code, need: s.potThreshold, spic: s.spicTie });
+      }
+      if (s.minScoreToBeat > 0 && HandEvaluator.compare(preview, this.bar()) === 0) {
+        return this.error(socket, 'errSwapTieCarried', { need: s.barHand ?? undefined });
+      }
       return this.error(socket, s.minScoreToBeat > 0 ? 'errSwapBeat' : 'errSwapMake', { score: preview.code, need: s.barHand ?? undefined });
     }
 
@@ -1014,7 +1034,7 @@ export class GameManager {
     let thresholdMiss: { name: string; score: number } | null = null;
     if (winners.length === 1 && s.potThreshold > 0) {
       const winnerScore = HandEvaluator.evaluate(winners[0].hand).score;
-      const qualifies = winnerScore > s.potThreshold || (s.spicTie && winnerScore === 31);
+      const qualifies = this.canWinPot(winnerScore);
       if (!qualifies) {
         thresholdMiss = { name: winners[0].name, score: winnerScore };
         this.log('neededMore', { name: winners[0].name, score: winnerScore, need: s.potThreshold });

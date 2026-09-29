@@ -57,7 +57,7 @@ The first player to sit down is the **host**. If they leave, the player who has 
 
 ### When the pot stays
 
-- **Ties:** if the best hands tie, the pot stays and the next winner must beat the tied score (a tie at 29 needs 30 or more). Two Špics in one hand are a tie too; after a tie on Špic, the **first Špic** in turn order takes the pot.
+- **Ties:** if the best hands tie, the pot stays and the next winner must beat the tied score (a tie at 29 needs 30 or more). While the pot is carried, swaps (and the banker's talon option) are only allowed for a hand that can win it, and a swap has to beat the bar (matching it isn't enough), so nobody takes a card just to block someone else. Two Špics in one hand are a tie too; after a tie on Špic, the **first Špic** in turn order takes the pot.
 - **Playing on for a carried pot:** everyone who didn't play the hand to the end owes what the finishers put in (beyond the ante), minus what they paid themselves. Players who were not at the table owe the full amount, and debts from several carried hands add up. You pay it at your first decision of the next hand (the buttons show "+ €X owed"), or fold and keep owing.
 - **A banker who owes:** before the deal they choose **Pay & deal** or **Skip**. Skipping means sitting out until the pot is won, and the deal passes to the next player who owes nothing.
 - When someone finally wins the pot, all debts are cleared and everyone is back in.

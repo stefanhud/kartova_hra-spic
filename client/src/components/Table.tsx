@@ -66,7 +66,9 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
   };
 
   const barPill = (view.phase === 'TALON_SWAP' || view.phase === 'DEALER_SPECIAL')
-    ? (view.minScoreToBeat > 0 ? t('barBeat', { n: view.barHand ?? view.minScoreToBeat }) : t('barQualify'))
+    ? (view.minScoreToBeat > 0 ? t('barBeat', { n: view.barHand ?? view.minScoreToBeat })
+      : view.potThreshold > 0 ? t('barPot', { n: view.potThreshold, spic: view.spicTie })
+        : t('barQualify'))
     : null;
 
   return (

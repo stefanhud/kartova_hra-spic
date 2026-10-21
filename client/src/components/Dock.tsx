@@ -85,6 +85,8 @@ export function Dock({ view, me, clockOffset, connected, selection, actions }: P
     } else {
       status = turnPlayer ? t('decidesDeal', { name: turnPlayer.name }) : t('choosingBanker');
     }
+  } else if (view.talonVoid) {
+    status = t('talonVoidPill');
   } else if (me.benched) {
     status = t('sitOutTillWin');
   } else if (me.sittingOut) {

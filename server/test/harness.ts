@@ -17,7 +17,7 @@ import type { ClientView, GameState } from '../src/game/GameState';
 import type { Card } from '../src/game/types';
 
 export const FAST: Timings = {
-  turn: 120, offlineTurn: 40, blindCall: 15, noSwap: 15, survivorDelay: 15, showdown: 30, reconnectGrace: 300,
+  turn: 120, offlineTurn: 40, blindCall: 15, noSwap: 15, survivorDelay: 15, talonRedraw: 15, showdown: 30, reconnectGrace: 300,
 };
 
 let failures = 0;
@@ -59,7 +59,7 @@ export const COVERAGE_PATTERNS: [string, (e: Entry) => boolean][] = [
   ['timeout', e => !!e.p?.timedOut || /Timeout$/.test(e.key)], ['banker look', is('looked')],
   ['banker call', e => is('checks', 'calls')(e) && !!e.p?.banker],
   ['bicykel fold', is('bicykel', 'bankerBicykel', 'swapBicykel')], ["banker's option", is('bankerOption')],
-  ['banker takes talon', is('takesTalon')], ['swap', is('swapped')], ['pass', is('passes')],
+  ['banker takes talon', is('takesTalon')], ['talon redrawn', is('talonRedrawn')], ['swap', is('swapped')], ['pass', is('passes')],
   ['auto-pass', is('cantImprove')], ['win', is('wins', 'winsFold')], ['pot stays', is('potStays')],
   ['escalation miss', is('neededMore')], ['survivor proves hand', is('proveHand')], ['debt charged', is('owing')],
   ['debt paid', e => is('checks', 'calls', 'raised', 'reraised')(e) && (e.p?.debt ?? 0) > 0],

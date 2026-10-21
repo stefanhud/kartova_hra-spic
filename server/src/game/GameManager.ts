@@ -21,6 +21,7 @@ export interface Timings {
   blindCall: number;       // Pause before the blind banker's automatic call
   noSwap: number;          // "Nothing to swap" notice before the automatic pass
   survivorDelay: number;   // Pause before a lone survivor goes to the talon
+  talonRedraw: number;     // How long a talon of four cards of one suit stays on show before it's replaced
   showdown: number;        // How long the showdown stays on screen
   reconnectGrace: number;  // How long a disconnected player keeps their seat
 }
@@ -31,6 +32,7 @@ export const DEFAULT_TIMINGS: Timings = {
   blindCall: 1000,
   noSwap: 1700,
   survivorDelay: 1000,
+  talonRedraw: 2200,
   showdown: 6000,
   reconnectGrace: 300000,
 };
@@ -461,6 +463,7 @@ export class GameManager {
     s.result = null;
     s.gameWinner = null;
     s.talon = [];
+    s.talonVoid = false;
     this.setBar(null);
     s.swappedPlayers = [];
     s.dealerIndex = dealer.seatIndex;
@@ -732,6 +735,7 @@ export class GameManager {
 
   private startTalonPhase() {
     const s = this.state;
+    s.phase = 'TALON_SWAP'; // betting is over (the banker's option may follow)
     this.noTurn();
     this.setBar(null);
     s.swappedPlayers = [];
@@ -741,13 +745,50 @@ export class GameManager {
       if (!p.isFolded) p.lastAction = undefined;
     }
 
+    this.dealTalon();
+    this.log('talonDealt');
+    this.checkTalonSuits();
+  }
+
+  private dealTalon() {
+    const s = this.state;
     s.talon = [];
     for (let i = 0; i < 4; i++) {
       const c = this.deck.draw();
       if (c) s.talon.push(c);
     }
-    this.log('talonDealt');
+  }
 
+  // House rule: four cards of one suit in the talon don't count. Everyone sees them for a
+  // moment, then they're discarded and the next four cards from the deck become the talon
+  // (again if those are one suit too, as long as the deck has four cards left).
+  private checkTalonSuits() {
+    const s = this.state;
+    const oneSuit = s.talon.length === 4 && s.talon.every(c => c.suit === s.talon[0].suit);
+    if (!oneSuit) {
+      s.talonVoid = false;
+      this.offerTalonToBanker();
+      return;
+    }
+    if (this.deck.remaining < 4) {
+      s.talonVoid = false;
+      this.log('talonNoRedraw');
+      this.offerTalonToBanker();
+      return;
+    }
+    s.talonVoid = true;
+    this.log('talonVoid');
+    const round = s.roundId;
+    this.setFlowTimer(() => {
+      if (s.roundId !== round || s.phase !== 'TALON_SWAP' || !s.talonVoid) return;
+      this.dealTalon(); // the old four are out of play
+      this.log('talonRedrawn');
+      this.checkTalonSuits();
+    }, this.timings.talonRedraw);
+  }
+
+  private offerTalonToBanker() {
+    const s = this.state;
     const dealer = this.playerAt(s.dealerIndex);
     const best = HandEvaluator.getBestSubset(s.talon);
     // Only a hand that could take the pot: after a tie, taking a lower one isn't allowed.
@@ -1124,6 +1165,7 @@ export class GameManager {
     s.phase = 'WAITING';
     s.gameWinner = null;
     s.talon = [];
+    s.talonVoid = false;
     this.setBar(null);
     s.swappedPlayers = [];
     s.currentBet = 0;

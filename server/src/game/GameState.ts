@@ -89,6 +89,7 @@ export interface GameState {
   dealerIndex: number;
   currentBet: number;     // The bet everyone has to match this betting round
   talon: Card[];
+  talonVoid: boolean;     // The talon is four cards of one suit: on show for a moment, then replaced
   log: LogEntry[];
   minScoreToBeat: number; // The bar: score a talon swap has to reach (a match is a tie)
   barTieBreak: number;    // Trojica rank of the bar, so a lower Trojica never "matches" a higher one
@@ -142,6 +143,7 @@ export function createInitialState(): GameState {
     minScoreToBeat: 0,
     barTieBreak: 0,
     barHand: null,
+    talonVoid: false,
     swappedPlayers: [],
     gameWinner: null,
     potThreshold: 0,

@@ -88,6 +88,7 @@ export interface GameView {
   dealerIndex: number;
   currentBet: number;
   talon: Card[];
+  talonVoid: boolean; // four cards of one suit: shown for a moment, then replaced
   log: LogEntry[];
   minScoreToBeat: number;
   barTieBreak: number;

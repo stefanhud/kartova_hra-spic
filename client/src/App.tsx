@@ -122,7 +122,8 @@ export default function App() {
       play(view.you && winners.includes(view.you) ? 'bigWin' : winners.length ? 'win' : 'tie');
     } else if ((view.roundId !== prev.roundId && view.phase !== 'WAITING')
       || (view.phase === 'BETTING_2' && prev.phase === 'BETTING_1')
-      || (view.talon.length > 0 && prev.talon.length === 0)) {
+      || (view.talon.length > 0 && prev.talon.length === 0)
+      || (prev.talonVoid && !view.talonVoid && view.talon.length > 0)) {
       play('deal');
     } else if (view.swappedPlayers.length > prev.swappedPlayers.length) {
       play('swap');

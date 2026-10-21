@@ -65,7 +65,7 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
     return opts.some(x => x.t === t) ? { cls: 'is-playable', badge: null } : { cls: 'is-dim', badge: null };
   };
 
-  const barPill = (view.phase === 'TALON_SWAP' || view.phase === 'DEALER_SPECIAL')
+  const barPill = view.talonVoid ? null : (view.phase === 'TALON_SWAP' || view.phase === 'DEALER_SPECIAL')
     ? (view.minScoreToBeat > 0 ? t('barBeat', { n: view.barHand ?? view.minScoreToBeat })
       : view.potThreshold > 0 ? t('barPot', { n: view.potThreshold, spic: view.spicTie })
         : t('barQualify'))
@@ -101,7 +101,7 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
         )}
 
         {view.talon.length > 0 ? (
-          <div className={`talon${swapping ? ' is-live' : ''}${view.phase === 'SHOWDOWN' ? ' is-done' : ''}`}>
+          <div className={`talon${swapping ? ' is-live' : ''}${view.phase === 'SHOWDOWN' ? ' is-done' : ''}${view.talonVoid ? ' is-void' : ''}`}>
             {view.talon.map((c, i) => {
               const st = talonState(i);
               return (
@@ -121,6 +121,7 @@ export function Table({ view, me, swapping, selection, onTalonTap, onSeatTap }: 
         )}
 
         {barPill && <div className="pill tone-blue">{barPill}</div>}
+        {view.talonVoid && <div className="pill tone-gold">{t('talonVoidShort')}</div>}
       </div>
 
       {view.players.map(p => p.bet > 0 && (

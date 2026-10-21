@@ -410,6 +410,58 @@ async function carriedPotNoTieSwaps() {
   await h.close();
 }
 
+// House rule: a talon of four cards of one suit is discarded and four new cards are dealt.
+// The banker's option then applies to the new talon as usual.
+async function talonOfOneSuit() {
+  console.log('• four of one suit in the talon: it is shown, discarded and replaced');
+  const h = await startServer({ ...SLOW_TURNS, talonRedraw: 300 });
+  const bots = await seatBots(h, 3, false);
+  const [a, b, c] = bots;
+  await deal(h, bots, 0, [
+    'S7', 'S8', /* A (banker) */ 'D8', 'C8', /* B */ 'H7', 'D7', /* C */
+    'SA', 'CJ', 'CQ', // third cards
+    'H8', 'H9', 'H10', 'HJ', // talon: four hearts
+    'S9', 'D9', 'C9', 'DK', // the new talon: Trojica 9 for the banker
+  ]);
+  for (let round = 0; round < 2; round++) {
+    await act(h, b, 1, 'playerAction', 'CALL');
+    await act(h, c, 2, 'playerAction', 'CALL');
+  }
+  await waitFor(() => h.state().talonVoid, 1000, 'the four hearts are on show');
+  check(h.state().talon.every(x => x.suit === 'H') && h.state().turnIndex === -1, 'everyone sees the four hearts, nobody is on the clock');
+  await sleep(40);
+  check(!!b.view?.talonVoid && b.view.talon.every(x => x.suit === 'H'), 'players see the talon of one suit');
+  await waitFor(() => h.state().phase === 'DEALER_SPECIAL', 1500, "the banker's option on the new talon");
+  const s = h.state();
+  check(s.talon.map(x => x.suit + x.rank).join() === 'S9,D9,C9,DK' && !s.talonVoid, `four new cards replace them (${s.talon.map(x => x.suit + x.rank)})`);
+  check(s.log.some(e => e.key === 'talonVoid') && s.log.some(e => e.key === 'talonRedrawn'), 'the log explains it');
+  await act(h, a, 0, 'dealerSpecial', 'TAKE');
+  check(player(h, 0).hand.every(x => x.rank === '9'), 'the banker takes Trojica 9 from the new talon');
+  bots.forEach(x => x.disconnect());
+  await h.close();
+
+  console.log('• one suit again: replaced again, unless the deck has no four cards left');
+  const h2 = await startServer(SLOW_TURNS);
+  const bots2 = await seatBots(h2, 3, false);
+  const [, b2, c2] = bots2;
+  await deal(h2, bots2, 0, [
+    'H7', 'H8', /* A (banker) */ 'C8', 'C7', /* B */ 'HA', 'CA', /* C */
+    'H9', 'CJ', 'CK', // third cards
+    'S7', 'S8', 'S9', 'S10', // talon: four spades
+    'D7', 'D8', 'D9', 'D10', // the new talon: four diamonds, and the deck is empty
+  ]);
+  for (let round = 0; round < 2; round++) {
+    await act(h2, b2, 1, 'playerAction', 'CALL');
+    await act(h2, c2, 2, 'playerAction', 'CALL');
+  }
+  await waitFor(() => h2.state().log.some(e => e.key === 'talonNoRedraw'), 1500, 'no cards for a third talon');
+  const s2 = h2.state();
+  check(s2.talon.every(x => x.suit === 'D') && !s2.talonVoid, 'the four diamonds stay: the deck is too short for another talon');
+  check(s2.log.filter(e => e.key === 'talonRedrawn').length === 1, 'the spades were replaced once');
+  bots2.forEach(x => x.disconnect());
+  await h2.close();
+}
+
 // Set everyone's score directly (seat -> [score before the pot, paid into the current pot]).
 function setScores(h: Harness, scores: Record<number, [number, number]>) {
   let pot = 0;
@@ -535,6 +587,7 @@ async function hostSettings() {
   await trojicaRanks();
   await carriedPotSwaps();
   await carriedPotNoTieSwaps();
+  await talonOfOneSuit();
   await hostSettings();
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);

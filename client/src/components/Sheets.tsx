@@ -90,7 +90,7 @@ export function RulesSheet({ view, onClose }: { view: GameView; onClose: () => v
     <BottomSheet title={t('howToPlay')} onClose={onClose}>
       {lang === 'sk' ? (
         <div className="rules">
-          <p>Každý vloží <b>{ante}</b> a dostane dve karty. Stávky, tretia karta, znova stávky — potom sa na stôl vyloží štvorkartový <b>talón</b>.</p>
+          <p>Každý vloží <b>{ante}</b> a dostane dve karty. Stávky, tretia karta, znova stávky — potom sa na stôl vyloží štvorkartový <b>talón</b>. Ak sú všetky štyri karty talónu jednej farby, idú preč a rozdajú sa štyri nové (bankárova voľba platí pre nový talón).</p>
           <p><b>Stávky:</b> zvyšovať môže len prvý hráč (vľavo od bankára) a posledný hráč (vpravo od bankára), o {raises} — jedno zvýšenie a jedno prebitie za kolo. Ostatní dorovnávajú alebo zložia. Na ťah je {secs} sekúnd.</p>
           <p><b>Bankár</b> (B) nikdy nezloží a dorovná všetko naslepo. Ak sa do kariet nepozrie a na talóne je farba alebo trojica, môže si ju zobrať. Keď sa pozrie, o túto možnosť príde.</p>
           <p>Pri talóne si každý môže vymeniť jednu kartu so stolom, ale len ak nová ruka <b>dosiahne latku</b> (najlepšiu doteraz vymenenú ruku) — rovnaké skóre je remíza. Inak pas.</p>
@@ -109,7 +109,7 @@ export function RulesSheet({ view, onClose }: { view: GameView; onClose: () => v
         </div>
       ) : (
         <div className="rules">
-          <p>Everyone antes <b>{ante}</b> and gets two cards. Bet, get a third card, bet again — then the four-card <b>talon</b> is dealt.</p>
+          <p>Everyone antes <b>{ante}</b> and gets two cards. Bet, get a third card, bet again — then the four-card <b>talon</b> is dealt. If all four talon cards are the same suit, they're discarded and four new cards are dealt (the banker's option applies to the new talon).</p>
           <p><b>Betting:</b> only the first player (left of the banker) and the last player (right of the banker) may raise, by {raises} — one raise and one re-raise per round. Everyone else calls or folds. Each turn has {secs} seconds.</p>
           <p>The <b>banker</b> (D) never folds and calls everything, playing blind. If the banker never looks and the talon holds a Flush or Trojica, they may take it. Looking at the cards gives that up.</p>
           <p>In the talon round each player may swap one card with the table, but only if the new hand <b>reaches the bar</b> (the best swapped hand so far) — matching it makes a tie. Otherwise pass.</p>
